@@ -12,14 +12,14 @@ suspend fun indexer(watchEvents: ReceiveChannel<WatchEvent>, indexRequests: Send
 
         if (enableLogging.get()) println("indexer: $event")
         when (event.type) {
-            WatchEventType.ADDED, WatchEventType.REMOVED -> handleUpdated(event, indexRequests)
-            WatchEventType.MODIFIED -> handleModified(event, indexRequests)
+            WatchEventType.ADDED, WatchEventType.MODIFIED -> handleUpdated(event, indexRequests)
+            WatchEventType.REMOVED -> handleRemoved(event, indexRequests)
             WatchEventType.INITIAL_SYNC_COMPLETED -> indexRequests.send(InitialSyncCompletedMessage)
         }
     }
 }
 
-private suspend fun handleModified(event: WatchEvent, indexRequests: SendChannel<IndexRequest>) {
+private suspend fun handleRemoved(event: WatchEvent, indexRequests: SendChannel<IndexRequest>) {
     indexRequests.send(RemoveFileRequest(event.path))
 }
 

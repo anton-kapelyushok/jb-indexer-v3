@@ -46,7 +46,7 @@ suspend fun assembled(dir: Path) = coroutineScope {
                 continue
             }
 
-            if (prompt.startsWith("/find")) {
+            if (prompt.startsWith("/find ")) {
                 val query = prompt.substring("/find".length + 1)
                 val future = CompletableDeferred<List<FileAddress>>()
                 indexRequests.send(FindTokenRequest(query, future))
@@ -57,7 +57,6 @@ suspend fun assembled(dir: Path) = coroutineScope {
                         println(it.path)
                     }
             }
-
 
             println("======")
             println()

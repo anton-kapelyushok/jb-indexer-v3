@@ -32,6 +32,7 @@ suspend fun watchDir(dir: Path, outputChannel: SendChannel<WatchEvent>) =
             }
         }
         launch(Dispatchers.IO) {
+            val watcherContext = this.coroutineContext
             runInterruptible {
                 watcher = DirectoryWatcher.builder()
                     .path(dir)
@@ -43,7 +44,7 @@ suspend fun watchDir(dir: Path, outputChannel: SendChannel<WatchEvent>) =
 
                         // A hack to speed up initialization process
                         if (rwInitialEmitFromFileHasherHackEnabled && isInitializing.get()) {
-                            runBlocking {
+                            runBlocking(watcherContext) {
                                 outputChannel.send(WatchEvent(WatchEventType.ADDED, path))
                             }
                         }
@@ -52,7 +53,7 @@ suspend fun watchDir(dir: Path, outputChannel: SendChannel<WatchEvent>) =
                     }
                     .listener { event ->
                         if (event.isDirectory) return@listener
-                        runBlocking {
+                        runBlocking(watcherContext) {
                             when (event.eventType()!!) {
                                 DirectoryChangeEvent.EventType.CREATE -> {
                                     outputChannel.send(WatchEvent(WatchEventType.ADDED, event.path()))
@@ -71,11 +72,12 @@ suspend fun watchDir(dir: Path, outputChannel: SendChannel<WatchEvent>) =
                         }
                     }
                     .build()
-                watcher!!.watchAsync()
+                val f = watcher!!.watchAsync()
                 isInitializing.set(false)
-                runBlocking {
+                runBlocking(watcherContext) {
                     outputChannel.send(WatchEvent(WatchEventType.INITIAL_SYNC_COMPLETED, dir))
                 }
+                f.join()
             }
         }
     }
