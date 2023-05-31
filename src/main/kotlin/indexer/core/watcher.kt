@@ -9,6 +9,7 @@ import kotlinx.coroutines.channels.SendChannel
 import org.slf4j.helpers.NOPLogger
 import java.nio.file.Files
 import java.nio.file.Path
+import kotlin.coroutines.CoroutineContext
 
 suspend fun watcher(dir: Path, outputChannel: SendChannel<WatchEvent>) = coroutineScope {
     val watcherStarted = CompletableDeferred<Unit>()
@@ -43,7 +44,7 @@ suspend fun watch(
     watcherStarted: CompletableDeferred<Unit>
 ) {
     withContext(Dispatchers.IO) {
-        val watcher = buildWatcher(dir, outputChannel)
+        val watcher = buildWatcher(coroutineContext, dir, outputChannel)
         withCancellationCallback({ watcher.close() }) {
             runInterruptible {
                 val f = watcher.watchAsync()
@@ -57,7 +58,8 @@ suspend fun watch(
     }
 }
 
-private fun CoroutineScope.buildWatcher(
+private fun buildWatcher(
+    ctx: CoroutineContext,
     dir: Path,
     outputChannel: SendChannel<WatchEvent>
 ): DirectoryWatcher = DirectoryWatcher.builder()
@@ -74,7 +76,7 @@ private fun CoroutineScope.buildWatcher(
     .listener(object : DirectoryChangeListener {
         override fun onEvent(event: DirectoryChangeEvent) {
             if (event.isDirectory) return
-            runBlocking(coroutineContext) {
+            runBlocking(ctx) {
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
                         outputChannel.send(WatchEvent(WatchEventType.ADDED, event.path()))
