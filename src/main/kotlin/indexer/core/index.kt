@@ -71,13 +71,13 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
             }
 
             SyncCompletedMessage -> {
-                println("Initial sync completed!")
                 syncCompletedTime = System.currentTimeMillis()
+                println("Initial sync completed after ${syncCompletedTime - startTime} ms!")
             }
 
             WatcherStartedMessage -> {
-                println("Watcher started!")
                 watcherStartedTime = System.currentTimeMillis()
+                println("Watcher started after ${watcherStartedTime - startTime} ms!")
             }
         }
     }

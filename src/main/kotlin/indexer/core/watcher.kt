@@ -1,122 +1,102 @@
 package indexer.core
 
 import io.methvin.watcher.DirectoryChangeEvent
+import io.methvin.watcher.DirectoryChangeListener
 import io.methvin.watcher.DirectoryWatcher
 import io.methvin.watcher.hashing.FileHasher
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
+import org.slf4j.helpers.NOPLogger
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicReference
-
 
 suspend fun watcher(dir: Path, outputChannel: SendChannel<WatchEvent>) = coroutineScope {
     val watcherStarted = CompletableDeferred<Unit>()
-    launch { watchDir(dir, outputChannel, watcherStarted) }
-    if (!rwInitialEmitFromFileHasherHackEnabled) launch { emitInitialContent(dir, outputChannel, watcherStarted) }
+    launch { watch(dir, outputChannel, watcherStarted) }
+    watcherStarted.await()
+    emitInitialContent(dir, outputChannel)
 }
-
-val rwInitialEmitFromFileHasherHackEnabled = false
 
 suspend fun emitInitialContent(
     dir: Path,
-    outputChannel: SendChannel<WatchEvent>,
-    watcherStarted: CompletableDeferred<Unit>
+    outputChannel: SendChannel<WatchEvent>
 ) {
-    watcherStarted.await()
     withContext(Dispatchers.IO) {
-        val ctx = this.coroutineContext
         Files.walk(dir)
             .use { stream ->
                 stream
                     .filter(Files::isRegularFile)
                     .forEach {
-                        runBlocking(ctx) {
+                        runBlocking(coroutineContext) {
                             outputChannel.send(WatchEvent(WatchEventType.ADDED, it))
                         }
                     }
             }
 
-
         outputChannel.send(WatchEvent(WatchEventType.SYNC_COMPLETED, dir))
     }
 }
 
-suspend fun watchDir(
-    dir: Path, outputChannel:
-    SendChannel<WatchEvent>,
+suspend fun watch(
+    dir: Path,
+    outputChannel: SendChannel<WatchEvent>,
     watcherStarted: CompletableDeferred<Unit>
 ) {
-    coroutineScope {
-        val watcherHolder = AtomicReference<DirectoryWatcher>()
-        val isInitializing = AtomicBoolean(true)
-
-        val cancellationCallbackStarted = CompletableDeferred<Unit>()
-        launch { // is there a primitive for it?
-            try {
-                cancellationCallbackStarted.complete(Unit)
-                awaitCancellation()
-            } finally {
-                watcherHolder.get()?.close()
-            }
-        }
-        cancellationCallbackStarted.join()
-
-        val job = launch(Dispatchers.IO) {
-            val watcherContext = this.coroutineContext
+    withContext(Dispatchers.IO) {
+        val watcher = buildWatcher(dir, outputChannel)
+        withCancellationCallback({ watcher.close() }) {
             runInterruptible {
-                val watcher = DirectoryWatcher.builder()
-                    .path(dir)
-                    .fileHasher { path ->
-                        // A hack to fast cancel watcher.build()
-                        if (Thread.interrupted()) {
-                            throw InterruptedException()
-                        }
-
-                        // A hack to speed up initialization process
-                        if (rwInitialEmitFromFileHasherHackEnabled && isInitializing.get()) {
-                            runBlocking(watcherContext) {
-                                outputChannel.send(WatchEvent(WatchEventType.ADDED, path))
-                            }
-                        }
-
-                        FileHasher.LAST_MODIFIED_TIME.hash(path)
-                    }
-                    .listener { event ->
-                        if (event.isDirectory) return@listener
-                        runBlocking(watcherContext) {
-                            when (event.eventType()!!) {
-                                DirectoryChangeEvent.EventType.CREATE -> {
-                                    outputChannel.send(WatchEvent(WatchEventType.ADDED, event.path()))
-                                }
-
-                                DirectoryChangeEvent.EventType.MODIFY -> {
-                                    outputChannel.send(WatchEvent(WatchEventType.MODIFIED, event.path()))
-                                }
-
-                                DirectoryChangeEvent.EventType.DELETE -> {
-                                    outputChannel.send(WatchEvent(WatchEventType.REMOVED, event.path()))
-                                }
-
-                                DirectoryChangeEvent.EventType.OVERFLOW -> throw WatcherOverflowException()
-                            }
-                        }
-                    }
-                    .build()
-                watcherHolder.set(watcher)
-                ensureActive()
-                val f = watcher!!.watchAsync()
-                isInitializing.set(false)
-                runBlocking(watcherContext) {
+                val f = watcher.watchAsync()
+                runBlocking(coroutineContext) {
                     outputChannel.send(WatchEvent(WatchEventType.WATCHER_STARTED, dir))
-                    if (!rwInitialEmitFromFileHasherHackEnabled) watcherStarted.complete(Unit)
+                    watcherStarted.complete(Unit)
                 }
                 f.join()
             }
         }
-        job.join()
     }
 }
+
+private fun CoroutineScope.buildWatcher(
+    dir: Path,
+    outputChannel: SendChannel<WatchEvent>
+): DirectoryWatcher = DirectoryWatcher.builder()
+    .path(dir)
+    .logger(NOPLogger.NOP_LOGGER)
+    .fileHasher { path ->
+        // A hack to fast cancel watcher.watchAsync()
+        if (Thread.interrupted()) {
+            throw InterruptedException()
+        }
+
+        FileHasher.LAST_MODIFIED_TIME.hash(path)
+    }
+    .listener(object : DirectoryChangeListener {
+        override fun onEvent(event: DirectoryChangeEvent) {
+            if (event.isDirectory) return
+            runBlocking(coroutineContext) {
+                when (event.eventType()!!) {
+                    DirectoryChangeEvent.EventType.CREATE -> {
+                        outputChannel.send(WatchEvent(WatchEventType.ADDED, event.path()))
+                    }
+
+                    DirectoryChangeEvent.EventType.MODIFY -> {
+                        outputChannel.send(WatchEvent(WatchEventType.MODIFIED, event.path()))
+                    }
+
+                    DirectoryChangeEvent.EventType.DELETE -> {
+                        outputChannel.send(WatchEvent(WatchEventType.REMOVED, event.path()))
+                    }
+
+                    DirectoryChangeEvent.EventType.OVERFLOW -> throw WatcherOverflowException()
+                }
+            }
+        }
+
+        override fun onException(e: Exception) {
+            throw e
+        }
+    })
+    .build()
 
 class WatcherOverflowException : RuntimeException()
