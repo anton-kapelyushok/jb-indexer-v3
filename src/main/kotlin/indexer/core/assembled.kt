@@ -48,9 +48,10 @@ suspend fun assembled(dir: Path) = coroutineScope {
                     }
 
                     prompt == "/gc" -> {
+                        val memoryBefore = "${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB"
                         System.gc()
-                        System.gc()
-                        println("GC done")
+                        val memoryAfter = "${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB"
+                        println("$memoryBefore -> $memoryAfter")
                     }
 
                     prompt == "/memory" -> {

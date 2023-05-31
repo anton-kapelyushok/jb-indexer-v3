@@ -48,12 +48,17 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                 val time = measureTime {
                     val query = event.query
                     val output = event.possibleResults
-                    val tokens = reverseIndex.entries.filter { (token) -> token.startsWith(query) }
-                    val result = tokens
+
+                    val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
+                    val containsMatch = reverseIndex.entries
                         .asSequence()
+                        .filter { (token) -> token.startsWith(query) }
                         .flatMap { (_, fas) -> fas }
-                        .take(1000)
+
+                    val result = (fullMatch + containsMatch)
+                        .take(5)
                         .toList()
+
                     output.complete(result)
                 }
                 if (enableLogging.get()) println("index: found in $time")
