@@ -14,7 +14,8 @@ suspend fun indexer(watchEvents: ReceiveChannel<WatchEvent>, indexRequests: Send
         when (event.type) {
             WatchEventType.ADDED, WatchEventType.MODIFIED -> handleUpdated(event, indexRequests)
             WatchEventType.REMOVED -> handleRemoved(event, indexRequests)
-            WatchEventType.INITIAL_SYNC_COMPLETED -> indexRequests.send(InitialSyncCompletedMessage)
+            WatchEventType.WATCHER_STARTED -> indexRequests.send(WatcherStartedMessage)
+            WatchEventType.SYNC_COMPLETED -> indexRequests.send(SyncCompletedMessage)
         }
     }
 }
@@ -23,7 +24,7 @@ private suspend fun handleRemoved(event: WatchEvent, indexRequests: SendChannel<
     indexRequests.send(RemoveFileRequest(event.path))
 }
 
-val regex = Regex("""[^\w]+""");
+val regex = Regex("""[^\w]+""")
 private suspend fun handleUpdated(event: WatchEvent, indexRequests: SendChannel<IndexRequest>) {
     withContext(Dispatchers.IO) {
         try {

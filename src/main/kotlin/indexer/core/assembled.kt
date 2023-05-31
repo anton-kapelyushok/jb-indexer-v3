@@ -2,6 +2,7 @@ package indexer.core
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -23,43 +24,80 @@ suspend fun assembled(dir: Path) = coroutineScope {
     println("/stop to stop")
     println()
 
+    val cancellationCallbackStarted = CompletableDeferred<Unit>()
+    launch { // is there a primitive for it?
+        try {
+            cancellationCallbackStarted.complete(Unit)
+            awaitCancellation()
+        } finally {
+            withContext(Dispatchers.IO + NonCancellable) {
+                System.`in`.close() // shouldn't it work?
+            }
+        }
+    }
+    cancellationCallbackStarted.complete(Unit)
+
     launch(Dispatchers.IO) {
         while (true) {
             val prompt = readln()
-            if (prompt == "/stop") {
-                outer.cancel()
-                return@launch
-            }
-            if (prompt == "/enable-logging") {
-                enableLogging.set(true)
-                continue
-            }
-            if (prompt == "/status") {
-                val future = CompletableDeferred<StatusResult>()
-                indexRequests.send(StatusRequest(future))
-                val result = future.await()
-                println(result)
+
+            val start = System.currentTimeMillis()
+            when {
+                prompt == "/stop" -> {
+                    outer.cancel()
+                    return@launch
+                }
+
+                prompt == "/enable-logging" -> {
+                    enableLogging.set(true)
+                }
+
+                prompt == "/status" -> {
+                    val future = CompletableDeferred<StatusResult>()
+                    indexRequests.send(StatusRequest(future))
+                    val result = future.await()
+                    println(result)
+                }
+
+                prompt == "/gc" -> {
+                    System.gc()
+                    System.gc()
+                    println("GC done")
+                }
+
+                prompt == "/memory" -> {
+                    println("${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB")
+                }
+
+                prompt == "" -> {
+                    enableLogging.set(false)
+                }
+
+                prompt == "/error" -> {
+                    error("/error")
+                }
+
+                prompt.startsWith("/find ") -> {
+                    val query = prompt.substring("/find".length + 1)
+                    val future = CompletableDeferred<List<FileAddress>>()
+                    indexRequests.send(FindTokenRequest(query, future))
+                    future
+                        .await()
+                        .take(5)
+                        .forEach {
+                            println(it.path)
+                        }
+                }
+
+                else -> {
+                    println("Unrecognized command!")
+                }
             }
 
-            if (prompt == "") {
-                enableLogging.set(false)
-                continue
-            }
-
-            if (prompt.startsWith("/find ")) {
-                val query = prompt.substring("/find".length + 1)
-                val future = CompletableDeferred<List<FileAddress>>()
-                indexRequests.send(FindTokenRequest(query, future))
-                future
-                    .await()
-                    .take(5)
-                    .forEach {
-                        println(it.path)
-                    }
-            }
-
-            println("======")
+            println("====== ${System.currentTimeMillis() - start}ms")
             println()
         }
     }
 }
+
+

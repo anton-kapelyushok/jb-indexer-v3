@@ -10,17 +10,19 @@ data class FileAddress(val path: String)
 suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
 
     val startTime = System.currentTimeMillis()
-    var syncCompletedTime: Long? = null;
+    var watcherStartedTime: Long? = null
+    var syncCompletedTime: Long? = null
     val fas = mutableMapOf<String, FileAddress>()
     val forwardIndex = mutableMapOf<FileAddress, MutableSet<String>>()
     val reverseIndex = mutableMapOf<String, MutableSet<FileAddress>>()
+    val interner = mutableMapOf<String, String>()
 
     for (event in indexRequests) {
         if (enableLogging.get()) println("index: $event")
         when (event) {
             is UpdateFileContentRequest -> {
                 val path = event.path.toFile().canonicalPath
-                val tokens = event.tokens
+                val tokens = event.tokens.map { token -> interner.computeIfAbsent(token) { it } }
                 val fa = fas.computeIfAbsent(path) { FileAddress(it) }
 
                 forwardIndex[fa]?.let { prevTokens ->
@@ -54,7 +56,7 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                         .toList()
                     output.complete(result)
                 }
-                println("found in $time")
+                if (enableLogging.get()) println("index: found in $time")
             }
 
             is StatusRequest -> {
@@ -62,15 +64,20 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                     StatusResult(
                         forwardIndex.size,
                         reverseIndex.size,
-                        syncCompletedTime?.let { it - startTime }
+                        watcherStartedTime?.let { it - startTime },
+                        syncCompletedTime?.let { it - startTime },
                     )
                 )
             }
 
-            InitialSyncCompletedMessage -> {
+            SyncCompletedMessage -> {
                 println("Initial sync completed!")
                 syncCompletedTime = System.currentTimeMillis()
+            }
 
+            WatcherStartedMessage -> {
+                println("Watcher started!")
+                watcherStartedTime = System.currentTimeMillis()
             }
         }
     }

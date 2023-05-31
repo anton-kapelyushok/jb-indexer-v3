@@ -4,7 +4,7 @@ import kotlinx.coroutines.CompletableDeferred
 import java.nio.file.Path
 
 enum class WatchEventType {
-    MODIFIED, ADDED, REMOVED, INITIAL_SYNC_COMPLETED
+    MODIFIED, ADDED, REMOVED, WATCHER_STARTED, SYNC_COMPLETED
 }
 
 data class WatchEvent(
@@ -36,6 +36,7 @@ data class FindTokenRequest(
 data class StatusResult(
     val indexedFiles: Int,
     val knownTokens: Int,
+    val watcherStartTime: Long?,
     val initialSyncTime: Long?,
 )
 
@@ -43,4 +44,5 @@ data class StatusRequest(
     val result: CompletableDeferred<StatusResult>
 ) : IndexRequest
 
-object InitialSyncCompletedMessage : IndexRequest
+object SyncCompletedMessage : IndexRequest
+object WatcherStartedMessage : IndexRequest
