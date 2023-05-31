@@ -2,13 +2,14 @@ package indexer.core
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
 
 val enableLogging = AtomicBoolean(false)
 
-suspend fun assembled(dir: Path) = coroutineScope {
+suspend fun assembled(input: ReceiveChannel<String>, dir: Path) = coroutineScope {
     val outer = this
     val indexRequests = Channel<IndexRequest>()
     val watchEvents = Channel<WatchEvent>()
@@ -25,15 +26,12 @@ suspend fun assembled(dir: Path) = coroutineScope {
     println()
 
     launch(Dispatchers.IO) {
-        withCancellationCallback({ System.`in`.close() }) {
-            while (true) {
-                val prompt = readln()
-
+            for (prompt in input) {
                 val start = System.currentTimeMillis()
                 when {
                     prompt == "/stop" -> {
                         outer.cancel()
-                        return@withCancellationCallback
+                        return@launch
                     }
 
                     prompt == "/enable-logging" -> {
@@ -86,7 +84,6 @@ suspend fun assembled(dir: Path) = coroutineScope {
                 println("====== ${System.currentTimeMillis() - start}ms")
                 println()
             }
-        }
     }
 }
 
