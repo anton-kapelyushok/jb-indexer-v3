@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 val enableLogging = AtomicBoolean(false)
 
-suspend fun assembled(input: ReceiveChannel<String>, dir: Path) = coroutineScope {
+suspend fun assembled(input: ReceiveChannel<String>, dir: Path) = withContext(Dispatchers.Default) {
     val indexRequests = Channel<IndexRequest>(onUndeliveredElement = {
         it.onMessageLoss()
     })
@@ -129,6 +129,7 @@ private suspend fun rmdCmdHandler(
 
                     awaitClose {}
                 }
+                    .buffer(capacity = Channel.RENDEZVOUS)
 
                 data class SearchResult(val path: String, val lineNo: Int, val line: String)
 

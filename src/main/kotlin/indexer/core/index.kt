@@ -1,7 +1,6 @@
 package indexer.core
 
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.yield
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 
@@ -78,10 +77,11 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                     val result = (fullMatch + containsMatch)
                         .distinct()
 
-                    result.forEach {
-                        event.onResult(it)
-                        yield()
-                    }
+                    result
+                        .takeWhile { event.isConsumerAlive() }
+                        .forEach {
+                            event.onResult(it)
+                        }
                 } catch (e: Throwable) {
                     event.onError(e)
                 } finally {
