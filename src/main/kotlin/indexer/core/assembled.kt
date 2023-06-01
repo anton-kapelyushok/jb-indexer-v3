@@ -5,6 +5,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.selects.select
 import java.io.File
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
@@ -94,45 +95,72 @@ private suspend fun rmdCmdHandler(
                     }
             }
 
-            prompt.startsWith("/find2 ") -> {
+            prompt.startsWith("/find2 ") -> coroutineScope {
                 val query = prompt.substring("/find2 ".length)
-                val flow = callbackFlow<FileAddress> {
-                    val request = FindTokenRequest2(
-                        query = query,
-                        isConsumerAlive = { this.coroutineContext.isActive },
-                        onResult = { channel.send(it) },
-                        onFinish = { close() },
-                        onError = { e ->
-                            println("Search failed with $e")
-                            close()
+                val job = launch {
+                    // TODO: this coroutine communication looks hacky, mb rethink?
+                    val flow = callbackFlow<FileAddress> {
+                        val request = FindTokenRequest2(
+                            query = query,
+                            isConsumerAlive = { this.coroutineContext.isActive },
+                            onResult = {
+                                // From `channel.send` description:
+                                //
+                                // Closing a channel after this function has suspended does not cause this suspended
+                                // send invocation to abort, because closing a channel is conceptually like sending
+                                // a special "close token" over this channel. All elements sent over the channel are
+                                // delivered in first-in first-out order. The sent element will be delivered
+                                // to receivers before the close token.
+                                select {
+                                    channel.onSend(it) {}
+                                    coroutineContext.job.onJoin {
+                                        if (coroutineContext.job.isCancelled) {
+                                            throw CancellationException("Consumer job cancelled during send")
+                                        }
+                                    }
+                                }
+                            },
+                            onFinish = { close() },
+                            onError = { e ->
+                                println("Search failed with $e")
+                                close()
+                            }
+                        )
+
+                        indexRequests.send(request)
+
+                        awaitClose {}
+                    }
+                        .buffer(capacity = Channel.RENDEZVOUS)
+
+                    data class SearchResult(val path: String, val lineNo: Int, val line: String)
+
+                    // TODO: search should be separate thingy
+                    flow
+                        .flatMapConcat { fa ->
+                            withContext(Dispatchers.IO) {
+                                File(fa.path)
+                                    .readLines()
+                                    .withIndex()
+                                    .filter { (_, line) -> line.contains(query) }
+                                    .map { (idx, line) -> SearchResult(fa.path, idx + 1, line) }
+                                    .asFlow()
+                            }
                         }
-                    )
-
-                    indexRequests.send(request)
-
-                    awaitClose {}
+                        .take(20)
+                        .collect { (path, lineNo, line) ->
+                            println("$path:$lineNo")
+                            println(if (line.length > 100) line.substring(0..100) + "..." else line)
+                            println()
+                        }
                 }
-                    .buffer(capacity = Channel.RENDEZVOUS)
 
-                data class SearchResult(val path: String, val lineNo: Int, val line: String)
-
-                flow
-                    .flatMapConcat { fa ->
-                        withContext(Dispatchers.IO) {
-                            File(fa.path)
-                                .readLines()
-                                .withIndex()
-                                .filter { (_, line) -> line.contains(query) }
-                                .map { (idx, line) -> SearchResult(fa.path, idx + 1, line) }
-                                .asFlow()
-                        }
+                select {
+                    input.onReceive {
+                        job.cancel(CancellationException("stop please :( $it"))
                     }
-                    .take(20)
-                    .collect { (path, lineNo, line) ->
-                        println("$path:$lineNo")
-                        println(if (line.length > 100) line.substring(0..100) + "..." else line)
-                        println()
-                    }
+                    job.onJoin {}
+                }
             }
 
             else -> {
