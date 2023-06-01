@@ -1,5 +1,6 @@
 package indexer.core
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import java.nio.file.Path
 
@@ -12,7 +13,9 @@ data class WatchEvent(
     val path: Path,
 )
 
-sealed interface IndexRequest
+sealed interface IndexRequest {
+    fun onMessageLoss() {}
+}
 
 data class UpdateFileContentRequest(
     val path: Path,
@@ -32,6 +35,18 @@ data class FindTokenRequest(
     val possibleResults: CompletableDeferred<List<FileAddress>>
 ) : IndexRequest
 
+data class FindTokenRequest2(
+    val query: String,
+    val isConsumerAlive: () -> Boolean,
+    val onResult: suspend (FileAddress) -> Unit,
+    val onError: (Throwable) -> Unit,
+    val onFinish: () -> Unit,
+) : IndexRequest {
+    override fun onMessageLoss() {
+        onError(CancellationException("Message was lost in flight"))
+        onFinish()
+    }
+}
 
 data class StatusResult(
     val indexedFiles: Int,

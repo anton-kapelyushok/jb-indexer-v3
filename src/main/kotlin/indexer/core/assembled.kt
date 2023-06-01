@@ -1,10 +1,11 @@
 package indexer.core
 
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.*
+import java.io.File
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
@@ -12,15 +13,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 val enableLogging = AtomicBoolean(false)
 
 suspend fun assembled(input: ReceiveChannel<String>, dir: Path) = coroutineScope {
-    val indexRequests = Channel<IndexRequest>()
+    val indexRequests = Channel<IndexRequest>(onUndeliveredElement = {
+        it.onMessageLoss()
+    })
 
     val indexJob = launch {
         val watchEvents = Channel<WatchEvent>()
-        launch { watcher(dir, watchEvents) }
+        launch(CoroutineName("watcher")) { watcher(dir, watchEvents) }
         repeat(4) {
-            launch { indexer(watchEvents, indexRequests) }
+            launch(CoroutineName("indexer-$it")) { indexer(watchEvents, indexRequests) }
         }
-        launch {
+        launch(CoroutineName("index")) {
             index(indexRequests)
         }
     }
@@ -29,11 +32,12 @@ suspend fun assembled(input: ReceiveChannel<String>, dir: Path) = coroutineScope
     indexJob.cancel()
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 private suspend fun rmdCmdHandler(
     input: ReceiveChannel<String>,
     indexRequests: Channel<IndexRequest>
 ) {
-    val helpMessage = "Available commands: /find /stop /enable-logging /status /gc /memory /error /help"
+    val helpMessage = "Available commands: /find /find2 /stop /enable-logging /status /gc /memory /error /help"
     println(helpMessage)
     println()
 
@@ -87,6 +91,61 @@ private suspend fun rmdCmdHandler(
                     .take(5)
                     .forEach {
                         println(it.path)
+                    }
+            }
+
+            prompt.startsWith("/find2 ") -> {
+                val query = prompt.substring("/find2".length + 1)
+                val flow = callbackFlow<FileAddress> {
+                    val request = FindTokenRequest2(
+                        query = query,
+                        isConsumerAlive = { this.coroutineContext.isActive },
+                        onResult = {
+                            try {
+                                channel.send(it)
+                            } catch (e: Throwable) {
+                                // onResult callback is executed in Producer context
+                                // CancellationException can be thrown
+                                // 1. when consumer is closed (for example `AbortFlowException: Flow was aborted, no more elements needed`)
+                                //    in that case we can swallow the exception
+                                // 2. when producer is closed - rethrow the exception
+                                if (e is CancellationException && isActive) {
+                                    return@FindTokenRequest2
+                                }
+                                throw e
+                            }
+
+                        },
+                        onFinish = { close() },
+                        onError = { e ->
+                            println("Search failed with exception $e")
+                            close()
+                        }
+                    )
+
+                    indexRequests.send(request)
+
+                    awaitClose {}
+                }
+
+                data class SearchResult(val path: String, val lineNo: Int, val line: String)
+
+                flow
+                    .flatMapConcat { fa ->
+                        withContext(Dispatchers.IO) {
+                            File(fa.path)
+                                .readLines()
+                                .withIndex()
+                                .filter { (_, line) -> line.contains(query) }
+                                .map { (idx, line) -> SearchResult(fa.path, idx + 1, line) }
+                                .asFlow()
+                        }
+                    }
+                    .take(5)
+                    .collect { (path, lineNo, line) ->
+                        println("$path:$lineNo")
+                        println(if (line.length > 100) line.substring(0..100) + "..." else line)
+                        println()
                     }
             }
 

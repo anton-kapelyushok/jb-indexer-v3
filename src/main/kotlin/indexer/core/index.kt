@@ -8,7 +8,6 @@ data class FileAddress(val path: String)
 
 @OptIn(ExperimentalTime::class)
 suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
-
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -56,12 +55,36 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                         .flatMap { (_, fas) -> fas }
 
                     val result = (fullMatch + containsMatch)
+                        .distinct()
                         .take(5)
                         .toList()
 
                     output.complete(result)
                 }
                 if (enableLogging.get()) println("index: found in $time")
+            }
+
+            is FindTokenRequest2 -> {
+                try {
+                    val query = event.query
+                    val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
+                    val containsMatch = reverseIndex.entries
+                        .asSequence()
+                        .filter { (token) -> token.startsWith(query) }
+                        .flatMap { (_, fas) -> fas }
+
+                    val result = (fullMatch + containsMatch)
+                        .distinct()
+
+                    result.forEach {
+                        if (!event.isConsumerAlive()) return@forEach
+                        event.onResult(it)
+                    }
+                } catch (e: Throwable) {
+                    event.onError(e)
+                } finally {
+                    event.onFinish()
+                }
             }
 
             is StatusRequest -> {
