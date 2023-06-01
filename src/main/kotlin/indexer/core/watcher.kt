@@ -22,7 +22,6 @@ suspend fun emitInitialContent(
     dir: Path,
     outputChannel: SendChannel<WatchEvent>
 ) {
-    var i = 0
     withContext(Dispatchers.IO) {
         Files.walk(dir)
             .use { stream ->

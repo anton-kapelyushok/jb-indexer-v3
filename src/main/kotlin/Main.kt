@@ -1,30 +1,41 @@
 import indexer.core.assembled
-import indexer.core.withCancellationCallback
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.SendChannel
 import java.nio.file.Path
+import java.util.concurrent.Executors
 import kotlin.io.path.Path
 
-fun main(args: Array<String>) {
+fun main() {
     runBlocking {
-//        assembled(Path("/Users/akapelyushok/Projects/intellij-community"))
-
         val stdin = Channel<String>()
-        launch(Dispatchers.IO) {
-            withCancellationCallback({
-                withContext(Dispatchers.IO) {
-                    System.`in`.close()
-                }
-            }) {
-                generateSequence { readlnOrNull() }.forEach { stdin.send(it) }
-            }
-        }
-
+        val stdinReader = launch { readStdin(stdin) }
         runIndex(stdin, Path("."))
+        stdinReader.cancel()
     }
 }
 
+suspend fun readStdin(output: SendChannel<String>) {
+    withContext(Dispatchers.IO) {
+        val stdinReaderExecutor =
+            Executors.newSingleThreadExecutor {
+                Executors.defaultThreadFactory().newThread(it).apply { isDaemon = true }
+            }
+
+        val future = stdinReaderExecutor.submit {
+            generateSequence { readlnOrNull() }.forEach {
+                runBlocking(coroutineContext) {
+                    output.send(it)
+                }
+            }
+        }
+
+        runInterruptible {
+            future.get()
+        }
+    }
+}
 
 suspend fun runIndex(input: ReceiveChannel<String>, dir: Path) {
     while (true) {
