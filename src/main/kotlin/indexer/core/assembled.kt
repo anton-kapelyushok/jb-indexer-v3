@@ -83,7 +83,7 @@ private suspend fun rmdCmdHandler(
             }
 
             prompt.startsWith("/find ") -> {
-                val query = prompt.substring("/find".length + 1)
+                val query = prompt.substring("/find ".length)
                 val future = CompletableDeferred<List<FileAddress>>()
                 indexRequests.send(FindTokenRequest(query, future))
                 future
@@ -95,32 +95,15 @@ private suspend fun rmdCmdHandler(
             }
 
             prompt.startsWith("/find2 ") -> {
-                val query = prompt.substring("/find2".length + 1)
+                val query = prompt.substring("/find2 ".length)
                 val flow = callbackFlow<FileAddress> {
                     val request = FindTokenRequest2(
                         query = query,
                         isConsumerAlive = { this.coroutineContext.isActive },
-                        onResult = {
-                            coroutineScope {
-                                try {
-                                    channel.send(it)
-                                } catch (e: Throwable) {
-                                    // onResult callback is executed in Producer context
-                                    // CancellationException can be thrown
-                                    // 1. when consumer is closed (for example `AbortFlowException: Flow was aborted, no more elements needed`)
-                                    //    in that case we can swallow the exception
-                                    // 2. when producer is closed - rethrow the exception
-                                    if (e is CancellationException && isActive) {
-                                        return@coroutineScope
-                                    }
-                                    throw e
-                                }
-                            }
-
-                        },
+                        onResult = { channel.send(it) },
                         onFinish = { close() },
                         onError = { e ->
-                            println("Search failed with exception $e")
+                            println("Search failed with $e")
                             close()
                         }
                     )
@@ -144,7 +127,7 @@ private suspend fun rmdCmdHandler(
                                 .asFlow()
                         }
                     }
-                    .take(5)
+                    .take(20)
                     .collect { (path, lineNo, line) ->
                         println("$path:$lineNo")
                         println(if (line.length > 100) line.substring(0..100) + "..." else line)

@@ -1,13 +1,15 @@
 package indexer.core
 
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 
 data class FileAddress(val path: String)
 
 @OptIn(ExperimentalTime::class)
-suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
+suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -70,17 +72,23 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                     val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
                     val containsMatch = reverseIndex.entries
                         .asSequence()
+                        // first isConsumerAlive - as often as possible
                         .takeWhile { event.isConsumerAlive() }
                         .filter { (token) -> token.startsWith(query) }
                         .flatMap { (_, fas) -> fas }
 
-                    val result = (fullMatch + containsMatch)
-                        .distinct()
-
-                    result
+                    (fullMatch + containsMatch)
+                        // second isConsumerAlive - before emitting result
                         .takeWhile { event.isConsumerAlive() }
+                        .distinct()
                         .forEach {
-                            event.onResult(it)
+                            try {
+                                event.onResult(it)
+                            } catch (e: Throwable) {
+                                // either producer was canceled or channel was closed by consumer
+                                ensureActive()
+                                if (enableLogging.get()) println("Search consumer failed with exception $e")
+                            }
                         }
                 } catch (e: Throwable) {
                     event.onError(e)
