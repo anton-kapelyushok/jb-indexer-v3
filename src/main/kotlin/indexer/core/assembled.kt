@@ -148,7 +148,6 @@ private suspend fun rmdCmdHandler(
                         }
                         .take(20)
                         .collect { (path, lineNo, line) ->
-                            delay(1000)
                             println("$path:$lineNo")
                             println(if (line.length > 100) line.substring(0..100) + "..." else line)
                             println()
