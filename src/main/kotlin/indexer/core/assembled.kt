@@ -114,9 +114,8 @@ private suspend fun rmdCmdHandler(
                                 select {
                                     channel.onSend(it) {}
                                     coroutineContext.job.onJoin {
-                                        if (coroutineContext.job.isCancelled) {
-                                            throw CancellationException("Consumer job cancelled during send")
-                                        }
+                                        // channel is closed at this point, will throw close exception
+                                        channel.send(it)
                                     }
                                 }
                             },
@@ -149,6 +148,7 @@ private suspend fun rmdCmdHandler(
                         }
                         .take(20)
                         .collect { (path, lineNo, line) ->
+                            delay(1000)
                             println("$path:$lineNo")
                             println(if (line.length > 100) line.substring(0..100) + "..." else line)
                             println()
