@@ -70,6 +70,7 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) {
                     val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
                     val containsMatch = reverseIndex.entries
                         .asSequence()
+                        .takeWhile { event.isConsumerAlive() }
                         .filter { (token) -> token.startsWith(query) }
                         .flatMap { (_, fas) -> fas }
 

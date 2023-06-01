@@ -101,18 +101,20 @@ private suspend fun rmdCmdHandler(
                         query = query,
                         isConsumerAlive = { this.coroutineContext.isActive },
                         onResult = {
-                            try {
-                                channel.send(it)
-                            } catch (e: Throwable) {
-                                // onResult callback is executed in Producer context
-                                // CancellationException can be thrown
-                                // 1. when consumer is closed (for example `AbortFlowException: Flow was aborted, no more elements needed`)
-                                //    in that case we can swallow the exception
-                                // 2. when producer is closed - rethrow the exception
-                                if (e is CancellationException && isActive) {
-                                    return@FindTokenRequest2
+                            coroutineScope {
+                                try {
+                                    channel.send(it)
+                                } catch (e: Throwable) {
+                                    // onResult callback is executed in Producer context
+                                    // CancellationException can be thrown
+                                    // 1. when consumer is closed (for example `AbortFlowException: Flow was aborted, no more elements needed`)
+                                    //    in that case we can swallow the exception
+                                    // 2. when producer is closed - rethrow the exception
+                                    if (e is CancellationException && isActive) {
+                                        return@coroutineScope
+                                    }
+                                    throw e
                                 }
-                                throw e
                             }
 
                         },
