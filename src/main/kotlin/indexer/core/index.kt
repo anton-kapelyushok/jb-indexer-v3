@@ -47,7 +47,7 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope 
 
             is FindTokenRequest -> {
                 val time = measureTime {
-                    val query = event.query
+                    val query = event.query.lowercase()
                     val output = event.possibleResults
 
                     val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
@@ -66,30 +66,101 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope 
                 if (enableLogging.get()) println("index: found in $time")
             }
 
+            // TODO: should probably be extracted
             is FindTokenRequest2 -> {
                 try {
-                    val query = event.query
-                    val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
-                    val containsMatch = reverseIndex.entries
-                        .asSequence()
-                        // first isConsumerAlive - as often as possible
-                        .takeWhile { event.isConsumerAlive() }
-                        .filter { (token) -> token.startsWith(query) }
-                        .flatMap { (_, fas) -> fas }
+                    val searchTokens = tokenize(event.query)
 
-                    (fullMatch + containsMatch)
-                        // second isConsumerAlive - before emitting result
-                        .takeWhile { event.isConsumerAlive() }
-                        .distinct()
-                        .forEach {
-                            try {
-                                event.onResult(it)
-                            } catch (e: Throwable) {
-                                // either producer was canceled or channel was closed by consumer
-                                ensureActive()
-                                if (enableLogging.get()) println("Search consumer failed with exception $e")
-                            }
+                    val onResult: suspend (FileAddress) -> Unit = { fa: FileAddress ->
+                        try {
+                            event.onResult(fa)
+                        } catch (e: Throwable) {
+                            // either producer was canceled or channel was closed by consumer
+                            ensureActive()
+                            if (enableLogging.get()) println("Search consumer failed with exception $e")
                         }
+                    }
+
+                    when (searchTokens.size) {
+                        0 -> {
+                            // index won't help us here, emit everything we have
+                            forwardIndex.keys.asSequence().takeWhile { event.isConsumerAlive() }
+                                .forEach { onResult(it) }
+                        }
+
+                        1 -> {
+                            val query = searchTokens[0].lowercase()
+                            val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
+                            val containsMatch = reverseIndex.entries
+                                .asSequence()
+                                // first isConsumerAlive - as often as possible
+                                .takeWhile { event.isConsumerAlive() }
+                                .filter { (token) -> token.contains(query) }
+                                .flatMap { (_, fas) -> fas }
+
+                            (fullMatch + containsMatch)
+                                // second isConsumerAlive - before emitting result
+                                .takeWhile { event.isConsumerAlive() }
+                                .distinct()
+                                .forEach { onResult(it) }
+                        }
+
+                        2 -> {
+                            val (startToken, endToken) = searchTokens
+                            val startFullMatch = (reverseIndex[startToken]?.asSequence() ?: sequenceOf())
+                                .filter { fa ->
+                                    val fileTokens = forwardIndex[fa] ?: mutableSetOf()
+                                    endToken in fileTokens || fileTokens.any { it.startsWith(endToken) }
+                                }
+
+                            val endFullMatch = (reverseIndex[endToken]?.asSequence() ?: sequenceOf())
+                                .filter { fa ->
+                                    val fileTokens = forwardIndex[fa] ?: mutableSetOf()
+                                    startToken in fileTokens || fileTokens.any { it.endsWith(startToken) }
+                                }
+
+                            val bothPartialMatch = reverseIndex.entries.asSequence()
+                                .takeWhile { event.isConsumerAlive() }
+                                .filter { (token) -> token.endsWith(startToken) }
+                                .flatMap { (_, fas) -> fas.asSequence() }
+                                .distinct()
+                                .takeWhile { event.isConsumerAlive() }
+                                .filter { fa -> forwardIndex[fa]?.any { it.startsWith(endToken) } ?: false }
+
+                            (startFullMatch + endFullMatch + bothPartialMatch)
+                                .takeWhile { event.isConsumerAlive() }
+                                .distinct()
+                                .forEach { onResult(it) }
+                        }
+
+                        else -> {
+                            val startToken = searchTokens.first()
+                            val endToken = searchTokens.last()
+                            val coreTokens = searchTokens.subList(1, searchTokens.lastIndex)
+                            coreTokens.map { reverseIndex[it] ?: setOf() }.minBy { it.size }
+                                .asSequence()
+                                .takeWhile { event.isConsumerAlive() }
+                                .filter { fa ->
+                                    val fileTokens = forwardIndex[fa] ?: mutableSetOf()
+
+                                    val coreTokensMatch = coreTokens.all { it in fileTokens }
+                                    if (!coreTokensMatch) return@filter false
+
+                                    val startTokenMatch =
+                                        startToken in fileTokens || fileTokens.any { it.endsWith(startToken) }
+                                    if (!startTokenMatch) return@filter false
+
+                                    val endTokenMatch =
+                                        endToken in fileTokens || fileTokens.any { it.startsWith(endToken) }
+                                    if (!endTokenMatch) return@filter false
+
+                                    return@filter true
+                                }
+                                .takeWhile { event.isConsumerAlive() }
+                                .distinct()
+                                .forEach { onResult(it) }
+                        }
+                    }
                 } catch (e: Throwable) {
                     event.onError(e)
                 } finally {

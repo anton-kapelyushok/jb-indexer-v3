@@ -12,6 +12,8 @@ fun main() {
         val stdin = Channel<String>()
         val stdinReader = launch { readStdin(stdin) }
         runIndex(stdin, Path("."))
+//        runIndex(stdin, Path("/Users/akapelyushok/git_tree/main"))
+//        runIndex(stdin, Path("/Users/akapelyushok/Projects/intellij-community"))
         stdinReader.cancel()
     }
 }

@@ -24,7 +24,6 @@ private suspend fun handleRemoved(event: WatchEvent, indexRequests: SendChannel<
     indexRequests.send(RemoveFileRequest(event.path))
 }
 
-val regex = Regex("""[^\w]+""")
 private suspend fun handleUpdated(event: WatchEvent, indexRequests: SendChannel<IndexRequest>) {
     withContext(Dispatchers.IO) {
         try {
@@ -34,9 +33,7 @@ private suspend fun handleUpdated(event: WatchEvent, indexRequests: SendChannel<
             }
 
             val tokens = event.path.readLines()
-                .flatMap { it.split(regex) }
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
+                .flatMap { tokenize(it) }
                 .toSet()
 
             indexRequests.send(UpdateFileContentRequest(event.path, tokens))
