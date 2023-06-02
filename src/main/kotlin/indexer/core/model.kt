@@ -2,7 +2,17 @@ package indexer.core
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import java.nio.file.Path
+
+
+interface Index : Job {
+    suspend fun status(): StatusResult
+    suspend fun find(query: String): Flow<SearchResult>
+}
+
+data class SearchResult(val path: String, val lineNo: Int, val line: String)
 
 enum class WatchEventType {
     MODIFIED, ADDED, REMOVED, WATCHER_STARTED, SYNC_COMPLETED
@@ -32,13 +42,8 @@ data class RemoveFileRequest(
 
 data class FindTokenRequest(
     val query: String,
-    val possibleResults: CompletableDeferred<List<FileAddress>>
-) : IndexRequest
-
-data class FindTokenRequest2(
-    val query: String,
     val isConsumerAlive: () -> Boolean,
-    val onResult: suspend (FileAddress) -> Unit,
+    val onResult: suspend (FileAddress) -> Result<Unit>,
     val onError: (Throwable) -> Unit,
     val onFinish: () -> Unit,
 ) : IndexRequest {

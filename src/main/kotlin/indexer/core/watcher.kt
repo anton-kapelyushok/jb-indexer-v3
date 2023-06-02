@@ -13,8 +13,8 @@ import kotlin.coroutines.CoroutineContext
 
 suspend fun watcher(dir: Path, outputChannel: SendChannel<WatchEvent>) = coroutineScope {
     val watcherStarted = CompletableDeferred<Unit>()
-    launch { watch(dir, outputChannel, watcherStarted) }
-    watcherStarted.await()
+//    launch { watch(dir, outputChannel, watcherStarted) }
+//    watcherStarted.await()
     emitInitialContent(dir, outputChannel)
 }
 

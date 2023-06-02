@@ -1,14 +1,11 @@
 package indexer.core
 
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.ensureActive
-import kotlin.time.ExperimentalTime
-import kotlin.time.measureTime
 
 data class FileAddress(val path: String)
 
-@OptIn(ExperimentalTime::class)
 suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
@@ -45,40 +42,18 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope 
                 forwardIndex.remove(fa)
             }
 
-            is FindTokenRequest -> {
-                val time = measureTime {
-                    val query = event.query.lowercase()
-                    val output = event.possibleResults
-
-                    val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
-                    val containsMatch = reverseIndex.entries
-                        .asSequence()
-                        .filter { (token) -> token.startsWith(query) }
-                        .flatMap { (_, fas) -> fas }
-
-                    val result = (fullMatch + containsMatch)
-                        .distinct()
-                        .take(5)
-                        .toList()
-
-                    output.complete(result)
-                }
-                if (enableLogging.get()) println("index: found in $time")
-            }
-
             // TODO: should probably be extracted
-            is FindTokenRequest2 -> {
+            is FindTokenRequest -> coroutineScope {
+                val requestScope = this
                 try {
                     val searchTokens = tokenize(event.query)
 
                     val onResult: suspend (FileAddress) -> Unit = { fa: FileAddress ->
-                        try {
-                            event.onResult(fa)
-                        } catch (e: Throwable) {
-                            // either producer was canceled or channel was closed by consumer
-                            ensureActive()
-                            if (enableLogging.get()) println("Search consumer failed with exception $e")
-                        }
+                        event.onResult(fa)
+                            .onFailure { e ->
+                                if (enableLogging.get()) println("Search consumer failed with exception $e")
+                                requestScope.cancel()
+                            }
                     }
 
                     when (searchTokens.size) {
