@@ -28,7 +28,8 @@ suspend fun emitInitialContent(
                 stream
                     .filter(Files::isRegularFile)
                     .forEach {
-                        runBlocking(coroutineContext) {
+                        // why is it faster with Unconfined?
+                        runBlocking(coroutineContext + Dispatchers.Unconfined) {
                             outputChannel.send(WatchEvent(WatchEventType.ADDED, it))
                         }
                     }
