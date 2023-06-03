@@ -1,7 +1,6 @@
 import indexer.core.Index
 import indexer.core.IndexConfig
 import indexer.core.launchIndex
-import indexer.core.wordIndexConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -11,6 +10,7 @@ import kotlinx.coroutines.selects.select
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import java.util.concurrent.Executors
+import kotlin.coroutines.coroutineContext
 import kotlin.io.path.Path
 
 fun main() {
@@ -18,7 +18,8 @@ fun main() {
         val stdin = Channel<String>()
         val stdinReader = launch { readStdin(stdin) }
 
-        val cfg = wordIndexConfig()
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+//        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
 //        runIndex(stdin, Path("."), cfg)
 //        runIndex(stdin, Path("/Users/akapelyushok/git_tree/main"), cfg)
@@ -58,7 +59,9 @@ private suspend fun runIndex(input: ReceiveChannel<String>, dir: Path, cfg: Inde
             }
             break
         } catch (e: Throwable) {
-            if (e is CancellationException) throw e
+            if (e is CancellationException) {
+                coroutineContext.ensureActive()
+            }
             println("Indexer failed with $e")
             e.printStackTrace(System.out)
             println("Restarting!")
@@ -70,37 +73,37 @@ private suspend fun runCmdHandler(
     input: ReceiveChannel<String>,
     index: Index,
 ) {
-    val helpMessage = "Available commands: /find /stop /enable-logging /status /gc /memory /error /help"
+    val helpMessage = "Available commands: find stop enable-logging status gc memory error help"
     println(helpMessage)
     println()
 
     for (prompt in input) {
         val start = System.currentTimeMillis()
         when {
-            prompt == "/stop" -> {
+            prompt == "stop" -> {
                 break
             }
 
-            prompt == "/help" -> {
+            prompt == "help" -> {
                 println(helpMessage)
             }
 
-            prompt == "/enable-logging" -> {
+            prompt == "enable-logging" -> {
                 index.enableLogging()
             }
 
-            prompt == "/status" -> {
+            prompt == "status" -> {
                 println(index.status())
             }
 
-            prompt == "/gc" -> {
+            prompt == "gc" -> {
                 val memoryBefore = "${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB"
                 System.gc()
                 val memoryAfter = "${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB"
                 println("$memoryBefore -> $memoryAfter")
             }
 
-            prompt == "/memory" -> {
+            prompt == "memory" -> {
                 println("${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB")
             }
 
@@ -108,13 +111,22 @@ private suspend fun runCmdHandler(
                 index.disableLogging()
             }
 
-            prompt == "/error" -> {
-                error("/error")
+            prompt == "error" -> {
+                error("error")
             }
 
-            prompt.startsWith("/find ") -> coroutineScope {
-                val query = prompt.substring("/find ".length)
+            prompt.startsWith("find ") -> coroutineScope {
+                val query = prompt.substring("find ".length)
                 val job = launch {
+
+                    val initialStatus = index.status()
+                    val showInitialWarning =
+                        initialStatus.initialSyncTime == null || initialStatus.handledFileModifications != initialStatus.totalFileModifications
+                    if (showInitialWarning) {
+                        println("Directory is not fully indexed yet, results might be incomplete or outdated")
+                        println()
+                    }
+
                     index
                         .find(query)
                         .take(20)
@@ -123,6 +135,14 @@ private suspend fun runCmdHandler(
                             println(if (line.length > 100) line.substring(0..100) + "..." else line)
                             println()
                         }
+
+                    if (!showInitialWarning) {
+                        val currentStatus = index.status()
+                        if (currentStatus.totalFileModifications != initialStatus.totalFileModifications) {
+                            println("Directory content has changed during search, results might be incomplete or outdated")
+                            println()
+                        }
+                    }
                 }
 
                 select {

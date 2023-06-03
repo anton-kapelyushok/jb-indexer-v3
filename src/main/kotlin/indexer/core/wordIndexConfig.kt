@@ -3,7 +3,7 @@ package indexer.core
 import java.util.concurrent.atomic.AtomicBoolean
 
 fun wordIndexConfig(
-    enableWatcher: Boolean = false,
+    enableWatcher: Boolean = true,
 ) = object : IndexConfig {
     private val regex = Regex("""\W+""")
 
@@ -41,7 +41,6 @@ fun wordIndexConfig(
                     .flatMap { (_, fas) -> fas }
 
                 (fullMatch + containsMatch)
-                    // second isConsumerAlive - before emitting result
                     .takeWhile { isActive() }
                     .distinct()
                     .forEach { yield(it) }

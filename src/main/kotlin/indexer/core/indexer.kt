@@ -44,7 +44,7 @@ private suspend fun handleUpdated(cfg: IndexConfig, event: FileEvent, indexReque
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, tokens, event.source))
         } catch (e: Throwable) {
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
-//            println("Failed to read ${event.path}: $e")
+            if (cfg.enableLogging.get()) println("Failed to read ${event.path}: $e")
         }
     }
 }

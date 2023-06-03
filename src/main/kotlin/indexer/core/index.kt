@@ -117,12 +117,14 @@ private class IndexState(val cfg: IndexConfig) {
         )
     }
 
-    suspend fun handleFindRequest(event: FindRequest) {
+    fun handleFindRequest(event: FindRequest) {
         val result = event.result
 
         val flow = flow {
             val ctx = coroutineContext
-            cfg.find(event.query, forwardIndex, reverseIndex, ctx::isActive).forEach { emit(it) }
+            cfg.find(event.query, forwardIndex, reverseIndex, ctx::isActive)
+                .distinct()
+                .forEach { emit(it) }
         }
         result.complete(flow)
     }
