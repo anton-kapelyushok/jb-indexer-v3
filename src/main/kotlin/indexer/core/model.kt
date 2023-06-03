@@ -45,9 +45,7 @@ internal object AllFilesDiscovered : StatusUpdate
 internal object WatcherDiscoveredFileDuringInitialization: StatusUpdate
 internal data class ModificationHappened(val source: FileEventSource) : StatusUpdate
 
-internal sealed interface IndexRequest {
-    fun onMessageLoss() {}
-}
+internal sealed interface IndexRequest
 
 internal data class UpdateFileContentRequest(
     val t: Long,
@@ -66,13 +64,17 @@ internal data class RemoveFileRequest(
     val source: FileEventSource,
 ) : IndexRequest
 
+sealed interface UserRequest {
+    fun onMessageLoss() {}
+}
+
 internal data class FindTokenRequest(
     val query: String,
     val isConsumerAlive: () -> Boolean,
     val onResult: suspend (FileAddress) -> Result<Unit>,
     val onError: (Throwable) -> Unit,
     val onFinish: () -> Unit,
-) : IndexRequest {
+) : UserRequest {
     override fun onMessageLoss() {
         onError(CancellationException("Message was lost in flight"))
         onFinish()
@@ -81,4 +83,4 @@ internal data class FindTokenRequest(
 
 internal data class StatusRequest(
     val result: CompletableDeferred<StatusResult>
-) : IndexRequest
+) : UserRequest

@@ -9,10 +9,10 @@ import java.util.*
 data class FileAddress(val path: String)
 
 internal suspend fun index(
+    userRequests: ReceiveChannel<UserRequest>,
     indexRequests: ReceiveChannel<IndexRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
 ) = coroutineScope {
-
     val index = IndexState()
     while (true) {
         select {
@@ -24,16 +24,18 @@ internal suspend fun index(
                     WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
                 }
             }
+            userRequests.onReceive { event ->
+                when (event) {
+                    is FindTokenRequest -> index.handleFindTokenRequest(event)
+                    is StatusRequest -> index.handleStatusRequest(event)
+                }
+            }
             indexRequests.onReceive { event ->
                 if (enableLogging.get()) println("index: $event")
 
                 when (event) {
                     is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
                     is RemoveFileRequest -> index.handleRemoveFileRequest(event)
-
-                    // TODO: should probably be extracted
-                    is FindTokenRequest -> index.handleFindTokenRequest(event)
-                    is StatusRequest -> index.handleStatusRequest(event)
                 }
             }
 

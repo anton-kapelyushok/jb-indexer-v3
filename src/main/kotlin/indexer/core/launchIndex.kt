@@ -13,11 +13,13 @@ val enableLogging = AtomicBoolean(false)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 fun CoroutineScope.launchIndex(dir: Path): Index {
-    val indexRequests = Channel<IndexRequest>(onUndeliveredElement = {
+
+    val userRequests = Channel<UserRequest>(onUndeliveredElement = {
         it.onMessageLoss()
     })
 
     val job = launch {
+        val indexRequests = Channel<IndexRequest>()
         val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
         val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
         launch(CoroutineName("watcher")) { watcher(dir, fileEvents, statusUpdates) }
@@ -25,14 +27,14 @@ fun CoroutineScope.launchIndex(dir: Path): Index {
             launch(CoroutineName("indexer-$it")) { indexer(fileEvents, indexRequests) }
         }
         launch(CoroutineName("index")) {
-            index(indexRequests, statusUpdates)
+            index(userRequests, indexRequests, statusUpdates)
         }
     }
 
     return object : Index, Job by job {
         override suspend fun status(): StatusResult {
             val future = CompletableDeferred<StatusResult>()
-            indexRequests.send(StatusRequest(future))
+            userRequests.send(StatusRequest(future))
             return future.await()
         }
 
@@ -70,7 +72,7 @@ fun CoroutineScope.launchIndex(dir: Path): Index {
                     }
                 )
 
-                indexRequests.send(request)
+                userRequests.send(request)
 
                 awaitClose {}
             }
