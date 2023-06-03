@@ -2,9 +2,7 @@ package indexer.core
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.selects.select
 import java.io.File
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicBoolean
@@ -14,9 +12,7 @@ val enableLogging = AtomicBoolean(false)
 @OptIn(ExperimentalCoroutinesApi::class)
 fun CoroutineScope.launchIndex(dir: Path): Index {
 
-    val userRequests = Channel<UserRequest>(onUndeliveredElement = {
-        it.onMessageLoss()
-    })
+    val userRequests = Channel<UserRequest>()
 
     val job = launch {
         val indexRequests = Channel<IndexRequest>()
@@ -39,47 +35,16 @@ fun CoroutineScope.launchIndex(dir: Path): Index {
         }
 
         override suspend fun find(query: String): Flow<SearchResult> {
-            val flow = callbackFlow<FileAddress> {
-                val request = FindTokenRequest(
-                    query = query,
-                    isConsumerAlive = { this.coroutineContext.isActive },
-                    onResult = {
-                        try {
-                            // From `channel.send` description:
-                            //
-                            // Closing a channel after this function has suspended does not cause this suspended
-                            // send invocation to abort.
-                            //
-                            // We work around it by waiting for job cancellation additionally
-                            select {
-                                channel.onSend(it) {}
-                                coroutineContext.job.onJoin {
-                                    // channel is closed at this point, will throw close exception
-                                    channel.send(it)
-                                }
-                            }
-                            Result.success(Unit)
-                        } catch (e: Throwable) {
-                            // either producer was canceled or channel was closed/cancelled by consumer
-                            ensureActive()
-                            Result.failure(e)
-                        }
-                    },
-                    onFinish = { close() },
-                    onError = { e ->
-                        println("Search failed with $e")
-                        close()
-                    }
-                )
-
-                userRequests.send(request)
-
-                awaitClose {}
-            }
-                .buffer(capacity = Channel.RENDEZVOUS)
-
+            val result = CompletableDeferred<Flow<FileAddress>>()
+            val request = FindRequest(
+                query = query,
+                result = result,
+            )
+            userRequests.send(request)
+            val flow = result.await()
             // TODO: search should be separate thingy
             return flow
+                .buffer(Int.MAX_VALUE)
                 .flatMapConcat { fa ->
                     withContext(Dispatchers.IO) {
                         File(fa.path)

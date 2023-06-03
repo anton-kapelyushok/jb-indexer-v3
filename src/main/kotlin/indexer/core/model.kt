@@ -1,6 +1,5 @@
 package indexer.core
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -64,22 +63,12 @@ internal data class RemoveFileRequest(
     val source: FileEventSource,
 ) : IndexRequest
 
-sealed interface UserRequest {
-    fun onMessageLoss() {}
-}
+internal sealed interface UserRequest
 
-internal data class FindTokenRequest(
+internal data class FindRequest(
     val query: String,
-    val isConsumerAlive: () -> Boolean,
-    val onResult: suspend (FileAddress) -> Result<Unit>,
-    val onError: (Throwable) -> Unit,
-    val onFinish: () -> Unit,
-) : UserRequest {
-    override fun onMessageLoss() {
-        onError(CancellationException("Message was lost in flight"))
-        onFinish()
-    }
-}
+    val result: CompletableDeferred<Flow<FileAddress>>,
+) : UserRequest
 
 internal data class StatusRequest(
     val result: CompletableDeferred<StatusResult>

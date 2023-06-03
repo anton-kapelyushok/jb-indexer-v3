@@ -12,8 +12,6 @@ import java.nio.file.Path
 import java.util.concurrent.Executors
 import kotlin.io.path.Path
 
-
-@OptIn(InternalCoroutinesApi::class)
 fun main() {
     runBlocking {
         val stdin = Channel<String>()
@@ -111,14 +109,12 @@ private suspend fun runCmdHandler(
             }
 
             prompt.startsWith("/find ") -> coroutineScope {
-                enableLogging.set(true)
                 val query = prompt.substring("/find ".length)
                 val job = launch {
                     index
                         .find(query)
                         .take(20)
                         .collect { (path, lineNo, line) ->
-                            delay(100)
                             println("$path:$lineNo")
                             println(if (line.length > 100) line.substring(0..100) + "..." else line)
                             println()
@@ -131,8 +127,6 @@ private suspend fun runCmdHandler(
                     }
                     job.onJoin {}
                 }
-                delay(30)
-                enableLogging.set(false)
             }
 
             else -> {
