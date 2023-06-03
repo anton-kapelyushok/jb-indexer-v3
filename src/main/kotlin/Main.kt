@@ -13,6 +13,7 @@ import java.util.concurrent.Executors
 import kotlin.io.path.Path
 
 
+@OptIn(InternalCoroutinesApi::class)
 fun main() {
     runBlocking {
         val stdin = Channel<String>()

@@ -1,5 +1,8 @@
 package indexer.core
 
+import indexer.core.FileEventSource.INITIAL_SYNC
+import indexer.core.FileEventSource.WATCHER
+import indexer.core.FileEventType.*
 import io.methvin.watcher.DirectoryChangeEvent
 import io.methvin.watcher.DirectoryChangeListener
 import io.methvin.watcher.DirectoryWatcher
@@ -9,18 +12,25 @@ import kotlinx.coroutines.channels.SendChannel
 import org.slf4j.helpers.NOPLogger
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-suspend fun watcher(dir: Path, outputChannel: SendChannel<WatchEvent>) = coroutineScope {
-    val watcherStarted = CompletableDeferred<Unit>()
-//    launch { watch(dir, outputChannel, watcherStarted) }
-//    watcherStarted.await()
-    emitInitialContent(dir, outputChannel)
+suspend fun watcher(dir: Path, outputChannel: SendChannel<FileEvent>) = coroutineScope {
+    val clock = AtomicLong(0L)
+    val watcherStartedLatch = CompletableDeferred<Unit>()
+    val initialSyncCompleteLatch = CompletableDeferred<Unit>()
+
+    launch { watch(dir, clock, outputChannel, initialSyncCompleteLatch, watcherStartedLatch) }
+    watcherStartedLatch.await()
+
+    emitInitialContent(dir, clock, initialSyncCompleteLatch, outputChannel)
 }
 
 suspend fun emitInitialContent(
     dir: Path,
-    outputChannel: SendChannel<WatchEvent>
+    clock: AtomicLong,
+    initialSyncCompleteLatch: CompletableDeferred<Unit>,
+    outputChannel: SendChannel<FileEvent>
 ) {
     withContext(Dispatchers.IO) {
         Files.walk(dir)
@@ -30,28 +40,41 @@ suspend fun emitInitialContent(
                     .forEach {
                         // why is it faster with Unconfined?
                         runBlocking(coroutineContext + Dispatchers.Unconfined) {
-                            outputChannel.send(WatchEvent(WatchEventType.ADDED, it))
+                            outputChannel.send(
+                                FileEvent(
+                                    clock.incrementAndGet(),
+                                    it.toFile().canonicalPath,
+                                    INITIAL_SYNC,
+                                    CREATE,
+                                )
+                            )
                         }
                     }
             }
 
-        outputChannel.send(WatchEvent(WatchEventType.SYNC_COMPLETED, dir))
+        initialSyncCompleteLatch.complete(Unit)
+        // TODO
+//        outputChannel.send(WatchEvent(WatchEventType.SYNC_COMPLETED, dir))
     }
 }
 
 suspend fun watch(
     dir: Path,
-    outputChannel: SendChannel<WatchEvent>,
-    watcherStarted: CompletableDeferred<Unit>
+    clock: AtomicLong,
+    outputChannel: SendChannel<FileEvent>,
+    initialSyncCompleteLatch: CompletableDeferred<Unit>,
+    watcherStartedLatch: CompletableDeferred<Unit>
 ) {
     withContext(Dispatchers.IO) {
-        val watcher = buildWatcher(coroutineContext, dir, outputChannel)
-        withCancellationCallback({ watcher.close() }) {
+        val watcher = buildWatcher(coroutineContext, dir, clock, initialSyncCompleteLatch, outputChannel)
+
+        invokeOnCancellation({ watcher.close() }) {
             runInterruptible {
                 val f = watcher.watchAsync()
                 runBlocking(coroutineContext) {
-                    outputChannel.send(WatchEvent(WatchEventType.WATCHER_STARTED, dir))
-                    watcherStarted.complete(Unit)
+                    // TODO
+//                    outputChannel.send(WatchEvent(WatchEventType.WATCHER_STARTED, dir))
+                    watcherStartedLatch.complete(Unit)
                 }
                 f.join()
             }
@@ -62,7 +85,9 @@ suspend fun watch(
 private fun buildWatcher(
     ctx: CoroutineContext,
     dir: Path,
-    outputChannel: SendChannel<WatchEvent>
+    clock: AtomicLong,
+    initialSyncCompleteLatch: CompletableDeferred<Unit>,
+    outputChannel: SendChannel<FileEvent>
 ): DirectoryWatcher = DirectoryWatcher.builder()
     .path(dir)
     .logger(NOPLogger.NOP_LOGGER)
@@ -78,17 +103,23 @@ private fun buildWatcher(
         override fun onEvent(event: DirectoryChangeEvent) {
             if (event.isDirectory) return
             runBlocking(ctx) {
+                initialSyncCompleteLatch.await()
+
+                val t = clock.incrementAndGet()
+
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
-                        outputChannel.send(WatchEvent(WatchEventType.ADDED, event.path()))
+                        outputChannel.send(
+                            FileEvent(t, event.path().toFile().canonicalPath, WATCHER, CREATE)
+                        )
                     }
 
                     DirectoryChangeEvent.EventType.MODIFY -> {
-                        outputChannel.send(WatchEvent(WatchEventType.MODIFIED, event.path()))
+                        outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, MODIFY))
                     }
 
                     DirectoryChangeEvent.EventType.DELETE -> {
-                        outputChannel.send(WatchEvent(WatchEventType.REMOVED, event.path()))
+                        outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, DELETE))
                     }
 
                     DirectoryChangeEvent.EventType.OVERFLOW -> throw WatcherOverflowException()

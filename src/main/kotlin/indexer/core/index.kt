@@ -3,6 +3,7 @@ package indexer.core
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
+import java.util.*
 
 data class FileAddress(val path: String)
 
@@ -10,18 +11,33 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope 
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
-    val fas = mutableMapOf<String, FileAddress>()
+
+    // TODO: check if it actually works
+    val fas = WeakHashMap<String, FileAddress>()
+    val interner = WeakHashMap<String, String>()
+    val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
+
     val forwardIndex = mutableMapOf<FileAddress, MutableSet<String>>()
     val reverseIndex = mutableMapOf<String, MutableSet<FileAddress>>()
-    val interner = mutableMapOf<String, String>()
+
+    fun checkUpdateTime(eventTime: Long, fa: FileAddress): Unit? {
+        val lastUpdate = fileUpdateTimes[fa] ?: 0L
+        if (lastUpdate > eventTime) return null
+        fileUpdateTimes[fa] = eventTime
+        return null
+    }
 
     for (event in indexRequests) {
         if (enableLogging.get()) println("index: $event")
+
         when (event) {
             is UpdateFileContentRequest -> {
-                val path = event.path.toFile().canonicalPath
-                val tokens = event.tokens.map { token -> interner.computeIfAbsent(token) { it } }
+                val path = event.path
                 val fa = fas.computeIfAbsent(path) { FileAddress(it) }
+
+                checkUpdateTime(event.t, fa) ?: continue
+
+                val tokens = event.tokens.map { token -> interner.computeIfAbsent(token) { it } }
 
                 forwardIndex[fa]?.let { prevTokens ->
                     prevTokens.forEach { reverseIndex[it]?.remove(fa) }
@@ -32,9 +48,10 @@ suspend fun index(indexRequests: ReceiveChannel<IndexRequest>) = coroutineScope 
             }
 
             is RemoveFileRequest -> {
-                val path = event.path.toFile().canonicalPath
-
+                val path = event.path
                 val fa = fas.computeIfAbsent(path) { FileAddress(it) }
+
+                checkUpdateTime(event.t, fa) ?: continue
 
                 forwardIndex[fa]?.let { prevTokens ->
                     prevTokens.forEach { reverseIndex[it]?.remove(fa) }

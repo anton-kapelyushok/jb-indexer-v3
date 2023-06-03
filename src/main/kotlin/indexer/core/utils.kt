@@ -1,7 +1,6 @@
 package indexer.core
 
 import kotlinx.coroutines.*
-import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Invokes `close` on coroutine cancellation
@@ -20,23 +19,21 @@ import java.util.concurrent.atomic.AtomicBoolean
  * withCancellationCallback will call watcher.close() on coroutine cancellation
  *
  */
-suspend fun withCancellationCallback(close: suspend () -> Unit, use: suspend () -> Unit) {
+suspend fun invokeOnCancellation(close: suspend () -> Unit, use: suspend () -> Unit) {
     coroutineScope {
-        val finishedNormally = AtomicBoolean(false)
-        val closerStarted = CompletableDeferred<Unit>()
+        val closerStartedLatch = CompletableDeferred<Unit>()
         val closerJob = launch {
             try {
-                closerStarted.complete(Unit)
+                closerStartedLatch.complete(Unit)
                 awaitCancellation()
             } finally {
                 withContext(NonCancellable) {
-                    if (!finishedNormally.get()) close()
+                    close()
                 }
             }
         }
-        closerStarted.await()
+        closerStartedLatch.await()
         use()
-        finishedNormally.set(true)
         closerJob.cancel()
     }
 }

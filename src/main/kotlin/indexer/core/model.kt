@@ -4,7 +4,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
-import java.nio.file.Path
 
 
 interface Index : Job {
@@ -14,13 +13,22 @@ interface Index : Job {
 
 data class SearchResult(val path: String, val lineNo: Int, val line: String)
 
-enum class WatchEventType {
-    MODIFIED, ADDED, REMOVED, WATCHER_STARTED, SYNC_COMPLETED
+enum class FileEventSource {
+    INITIAL_SYNC,
+    WATCHER,
 }
 
-data class WatchEvent(
-    val type: WatchEventType,
-    val path: Path,
+enum class FileEventType {
+    CREATE,
+    DELETE,
+    MODIFY,
+}
+
+data class FileEvent(
+    val t: Long,
+    val path: String,
+    val source: FileEventSource,
+    val type: FileEventType,
 )
 
 sealed interface IndexRequest {
@@ -28,8 +36,10 @@ sealed interface IndexRequest {
 }
 
 data class UpdateFileContentRequest(
-    val path: Path,
+    val t: Long,
+    val path: String,
     val tokens: Set<String>,
+    val source: FileEventSource,
 ) : IndexRequest {
     override fun toString(): String {
         return "UpdateFileContentRequest($path)"
@@ -37,7 +47,9 @@ data class UpdateFileContentRequest(
 }
 
 data class RemoveFileRequest(
-    val path: Path,
+    val t: Long,
+    val path: String,
+    val source: FileEventSource,
 ) : IndexRequest
 
 data class FindTokenRequest(
