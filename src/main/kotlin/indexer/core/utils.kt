@@ -19,7 +19,7 @@ import kotlinx.coroutines.*
  * withCancellationCallback will call watcher.close() on coroutine cancellation
  *
  */
-suspend fun invokeOnCancellation(close: suspend () -> Unit, use: suspend () -> Unit) {
+internal suspend fun invokeOnCancellation(close: suspend () -> Unit, use: suspend () -> Unit) {
     coroutineScope {
         val closerStartedLatch = CompletableDeferred<Unit>()
         val closerJob = launch {

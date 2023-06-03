@@ -1,8 +1,8 @@
 package indexer.core
 
 
-val regex = Regex("""\W+""")
-fun tokenize(s: String): List<String> {
+internal val regex = Regex("""\W+""")
+internal fun tokenize(s: String): List<String> {
     return s.split(regex).map { it.trim().lowercase() }
         .filter { it.isNotEmpty() }
 }

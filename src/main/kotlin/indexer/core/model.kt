@@ -12,35 +12,44 @@ interface Index : Job {
 
 data class SearchResult(val path: String, val lineNo: Int, val line: String)
 
-enum class FileEventSource {
+data class StatusResult(
+    val indexedFiles: Int,
+    val knownTokens: Int,
+    val watcherStartTime: Long?,
+    val initialSyncTime: Long?,
+    val handledFileModifications: Long,
+    val totalFileModifications: Long
+)
+
+internal enum class FileEventSource {
     INITIAL_SYNC,
     WATCHER,
 }
 
-enum class FileEventType {
+internal enum class FileEventType {
     CREATE,
     DELETE,
     MODIFY,
 }
 
-data class FileEvent(
+internal data class FileEvent(
     val t: Long,
     val path: String,
     val source: FileEventSource,
     val type: FileEventType,
 )
 
-sealed interface StatusUpdate
-object WatcherStarted : StatusUpdate
-object AllFilesDiscovered : StatusUpdate
-object WatcherDiscoveredFileDuringInitialization: StatusUpdate
-data class ModificationHappened(val source: FileEventSource) : StatusUpdate
+internal sealed interface StatusUpdate
+internal object WatcherStarted : StatusUpdate
+internal object AllFilesDiscovered : StatusUpdate
+internal object WatcherDiscoveredFileDuringInitialization: StatusUpdate
+internal data class ModificationHappened(val source: FileEventSource) : StatusUpdate
 
-sealed interface IndexRequest {
+internal sealed interface IndexRequest {
     fun onMessageLoss() {}
 }
 
-data class UpdateFileContentRequest(
+internal data class UpdateFileContentRequest(
     val t: Long,
     val path: String,
     val tokens: Set<String>,
@@ -51,13 +60,13 @@ data class UpdateFileContentRequest(
     }
 }
 
-data class RemoveFileRequest(
+internal data class RemoveFileRequest(
     val t: Long,
     val path: String,
     val source: FileEventSource,
 ) : IndexRequest
 
-data class FindTokenRequest(
+internal data class FindTokenRequest(
     val query: String,
     val isConsumerAlive: () -> Boolean,
     val onResult: suspend (FileAddress) -> Result<Unit>,
@@ -70,15 +79,6 @@ data class FindTokenRequest(
     }
 }
 
-data class StatusResult(
-    val indexedFiles: Int,
-    val knownTokens: Int,
-    val watcherStartTime: Long?,
-    val initialSyncTime: Long?,
-    val handledFileModifications: Long,
-    val totalFileModifications: Long
-)
-
-data class StatusRequest(
+internal data class StatusRequest(
     val result: CompletableDeferred<StatusResult>
 ) : IndexRequest

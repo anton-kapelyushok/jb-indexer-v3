@@ -15,7 +15,7 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-suspend fun watcher(
+internal suspend fun watcher(
     dir: Path,
     fileEvents: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>
@@ -30,7 +30,7 @@ suspend fun watcher(
     emitInitialContent(dir, clock, initialSyncCompleteLatch, fileEvents, statusUpdates)
 }
 
-suspend fun emitInitialContent(
+internal suspend fun emitInitialContent(
     dir: Path,
     clock: AtomicLong,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
@@ -62,7 +62,7 @@ suspend fun emitInitialContent(
     }
 }
 
-suspend fun watch(
+internal suspend fun watch(
     dir: Path,
     clock: AtomicLong,
     outputChannel: SendChannel<FileEvent>,

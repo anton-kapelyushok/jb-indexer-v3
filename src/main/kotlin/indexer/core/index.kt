@@ -8,7 +8,7 @@ import java.util.*
 
 data class FileAddress(val path: String)
 
-suspend fun index(
+internal suspend fun index(
     indexRequests: ReceiveChannel<IndexRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
 ) = coroutineScope {
@@ -20,7 +20,7 @@ suspend fun index(
                 when (event) {
                     AllFilesDiscovered -> index.handleAllFilesDiscovered()
                     WatcherStarted -> index.handleWatcherStarted()
-                    is ModificationHappened -> index.handleFileDiscovered()
+                    is ModificationHappened -> index.handleModificationHappened()
                     WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
                 }
             }
@@ -41,7 +41,7 @@ suspend fun index(
     }
 }
 
-class IndexState {
+internal class IndexState {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -58,13 +58,6 @@ class IndexState {
     var filesDiscoveredByWatcherDuringInitialization = 0L
     var totalModifications = 0L
     var handledModifications = 0L
-
-    fun checkUpdateTime(eventTime: Long, fa: FileAddress): Unit? {
-        val lastUpdate = fileUpdateTimes[fa] ?: 0L
-        if (lastUpdate > eventTime) return null
-        fileUpdateTimes[fa] = eventTime
-        return Unit
-    }
 
     fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         updateModificationsCounts()
@@ -228,7 +221,7 @@ class IndexState {
         println("All files discovered after ${allFilesDiscoveredTime!! - startTime} ms!")
     }
 
-    fun handleFileDiscovered() {
+    fun handleModificationHappened() {
         totalModifications++
     }
 
@@ -242,5 +235,12 @@ class IndexState {
             syncCompletedTime = System.currentTimeMillis()
             println("Initial sync completed after ${syncCompletedTime!! - startTime} ms!")
         }
+    }
+
+    private fun checkUpdateTime(eventTime: Long, fa: FileAddress): Unit? {
+        val lastUpdate = fileUpdateTimes[fa] ?: 0L
+        if (lastUpdate > eventTime) return null
+        fileUpdateTimes[fa] = eventTime
+        return Unit
     }
 }

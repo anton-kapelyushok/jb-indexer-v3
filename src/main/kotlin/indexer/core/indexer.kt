@@ -9,7 +9,7 @@ import kotlin.io.path.Path
 import kotlin.io.path.fileSize
 import kotlin.io.path.readLines
 
-suspend fun indexer(watchEvents: ReceiveChannel<FileEvent>, indexRequests: SendChannel<IndexRequest>) {
+internal suspend fun indexer(watchEvents: ReceiveChannel<FileEvent>, indexRequests: SendChannel<IndexRequest>) {
     for (event in watchEvents) {
         if (enableLogging.get()) println("indexer: $event")
         when (event.type) {
