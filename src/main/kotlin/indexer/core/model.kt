@@ -96,3 +96,10 @@ internal data class FindRequest(
 internal data class StatusRequest(
     val result: CompletableDeferred<StatusResult>
 ) : UserRequest
+
+
+internal data class SearchInFileRequest(
+    val fa: FileAddress,
+    val query: String,
+    val result: CompletableDeferred<Flow<SearchResult>>
+)

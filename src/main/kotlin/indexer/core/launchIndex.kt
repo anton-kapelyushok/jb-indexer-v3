@@ -3,24 +3,28 @@ package indexer.core
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
-import java.io.File
 import java.nio.file.Path
 
 @OptIn(ExperimentalCoroutinesApi::class)
 fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
 
     val userRequests = Channel<UserRequest>()
+    val searchInFileRequests = Channel<SearchInFileRequest>()
 
     val job = launch {
         val indexRequests = Channel<IndexRequest>()
         val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
         val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
+
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
         repeat(4) {
             launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexRequests) }
         }
         launch(CoroutineName("index")) {
             index(cfg, userRequests, indexRequests, statusUpdates)
+        }
+        repeat(4) {
+            launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
         }
     }
 
@@ -41,16 +45,12 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
             val flow = result.await()
             return flow
                 .buffer(Int.MAX_VALUE)
-                .flatMapConcat { fa ->
-                    withContext(Dispatchers.IO) {
-                        File(fa.path)
-                            .readLines()
-                            .withIndex()
-                            .filter { (_, line) -> cfg.matches(line, query) }
-                            .map { (idx, line) -> SearchResult(fa.path, idx + 1, line) }
-                            .asFlow()
-                    }
+                .map { fa ->
+                    val flowFuture = CompletableDeferred<Flow<SearchResult>>()
+                    searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
+                    flowFuture.await()
                 }
+                .flattenMerge()
         }
 
         override suspend fun enableLogging() {
