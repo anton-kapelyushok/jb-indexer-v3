@@ -3,10 +3,33 @@ package indexer.core
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Job {
     suspend fun status(): StatusResult
     suspend fun find(query: String): Flow<SearchResult>
+    suspend fun enableLogging()
+    suspend fun disableLogging()
+}
+
+interface IndexConfig {
+    val enableLogging: AtomicBoolean
+
+    val enableWatcher: Boolean
+
+    // transforms line into tokens for index to store
+    fun tokenize(line: String): List<String>
+
+    // returns possible files that match query
+    fun find(
+        query: String,
+        forwardIndex: Map<FileAddress, Set<String>>,
+        reverseIndex: Map<String, Set<FileAddress>>,
+        isActive: () -> Boolean,
+    ): Sequence<FileAddress>
+
+    // determines line matches query
+    fun matches(line: String, query: String): Boolean
 }
 
 data class SearchResult(val path: String, val lineNo: Int, val line: String)

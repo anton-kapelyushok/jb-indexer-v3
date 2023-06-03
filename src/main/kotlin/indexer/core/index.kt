@@ -12,14 +12,16 @@ import kotlin.coroutines.coroutineContext
 data class FileAddress(val path: String)
 
 internal suspend fun index(
+    cfg: IndexConfig,
     userRequests: ReceiveChannel<UserRequest>,
     indexRequests: ReceiveChannel<IndexRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
 ) = coroutineScope {
-    val index = IndexState()
+    val index = IndexState(cfg)
     while (true) {
         select {
             statusUpdates.onReceive { event ->
+                if (cfg.enableLogging.get()) println("statusUpdates: $event")
                 when (event) {
                     AllFilesDiscovered -> index.handleAllFilesDiscovered()
                     WatcherStarted -> index.handleWatcherStarted()
@@ -28,13 +30,14 @@ internal suspend fun index(
                 }
             }
             userRequests.onReceive { event ->
+                if (cfg.enableLogging.get()) println("userRequests: $event")
                 when (event) {
                     is FindRequest -> index.handleFindRequest(event)
                     is StatusRequest -> index.handleStatusRequest(event)
                 }
             }
             indexRequests.onReceive { event ->
-                if (enableLogging.get()) println("index: $event")
+                if (cfg.enableLogging.get()) println("indexRequests: $event")
 
                 when (event) {
                     is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
@@ -46,7 +49,7 @@ internal suspend fun index(
     }
 }
 
-internal class IndexState {
+private class IndexState(val cfg: IndexConfig) {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -116,91 +119,10 @@ internal class IndexState {
 
     suspend fun handleFindRequest(event: FindRequest) {
         val result = event.result
-        val searchTokens = tokenize(event.query)
 
-        val flow = flow<FileAddress> {
+        val flow = flow {
             val ctx = coroutineContext
-
-            when (searchTokens.size) {
-                0 -> {
-                    // index won't help us here, emit everything we have
-                    forwardIndex.keys.asSequence()
-                        .takeWhile { ctx.isActive }
-                        .forEach { emit(it) }
-                }
-
-                1 -> {
-                    val query = searchTokens[0].lowercase()
-                    val fullMatch = reverseIndex[query]?.asSequence() ?: sequenceOf()
-                    val containsMatch = reverseIndex.entries
-                        .asSequence()
-                        .takeWhile { ctx.isActive }
-                        .filter { (token) -> token.contains(query) }
-                        .flatMap { (_, fas) -> fas }
-
-                    (fullMatch + containsMatch)
-                        // second isConsumerAlive - before emitting result
-                        .takeWhile { ctx.isActive }
-                        .distinct()
-                        .forEach { emit(it) }
-                }
-
-                2 -> {
-                    val (startToken, endToken) = searchTokens
-                    val startFullMatch = (reverseIndex[startToken]?.asSequence() ?: sequenceOf())
-                        .filter { fa ->
-                            val fileTokens = forwardIndex[fa] ?: mutableSetOf()
-                            endToken in fileTokens || fileTokens.any { it.startsWith(endToken) }
-                        }
-
-                    val endFullMatch = (reverseIndex[endToken]?.asSequence() ?: sequenceOf())
-                        .filter { fa ->
-                            val fileTokens = forwardIndex[fa] ?: mutableSetOf()
-                            startToken in fileTokens || fileTokens.any { it.endsWith(startToken) }
-                        }
-
-                    val bothPartialMatch = reverseIndex.entries.asSequence()
-                        .takeWhile { ctx.isActive }
-                        .filter { (token) -> token.endsWith(startToken) }
-                        .flatMap { (_, fas) -> fas.asSequence() }
-                        .distinct()
-                        .takeWhile { ctx.isActive }
-                        .filter { fa -> forwardIndex[fa]?.any { it.startsWith(endToken) } ?: false }
-
-                    (startFullMatch + endFullMatch + bothPartialMatch)
-                        .takeWhile { ctx.isActive }
-                        .distinct()
-                        .forEach { emit(it) }
-                }
-
-                else -> {
-                    val startToken = searchTokens.first()
-                    val endToken = searchTokens.last()
-                    val coreTokens = searchTokens.subList(1, searchTokens.lastIndex)
-                    coreTokens.map { reverseIndex[it] ?: setOf() }.minBy { it.size }
-                        .asSequence()
-                        .takeWhile { ctx.isActive }
-                        .filter { fa ->
-                            val fileTokens = forwardIndex[fa] ?: mutableSetOf()
-
-                            val coreTokensMatch = coreTokens.all { it in fileTokens }
-                            if (!coreTokensMatch) return@filter false
-
-                            val startTokenMatch =
-                                startToken in fileTokens || fileTokens.any { it.endsWith(startToken) }
-                            if (!startTokenMatch) return@filter false
-
-                            val endTokenMatch =
-                                endToken in fileTokens || fileTokens.any { it.startsWith(endToken) }
-                            if (!endTokenMatch) return@filter false
-
-                            return@filter true
-                        }
-                        .takeWhile { ctx.isActive }
-                        .distinct()
-                        .forEach { emit(it) }
-                }
-            }
+            cfg.find(event.query, forwardIndex, reverseIndex, ctx::isActive).forEach { emit(it) }
         }
         result.complete(flow)
     }

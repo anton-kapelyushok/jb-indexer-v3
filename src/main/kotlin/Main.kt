@@ -1,6 +1,7 @@
 import indexer.core.Index
-import indexer.core.enableLogging
+import indexer.core.IndexConfig
 import indexer.core.launchIndex
+import indexer.core.wordIndexConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -16,9 +17,12 @@ fun main() {
     runBlocking {
         val stdin = Channel<String>()
         val stdinReader = launch { readStdin(stdin) }
-//        runIndex(stdin, Path("."))
-//        runIndex(stdin, Path("/Users/akapelyushok/git_tree/main"))
-        runIndex(stdin, Path("/Users/akapelyushok/Projects/intellij-community"))
+
+        val cfg = wordIndexConfig()
+
+//        runIndex(stdin, Path("."), cfg)
+//        runIndex(stdin, Path("/Users/akapelyushok/git_tree/main"), cfg)
+        runIndex(stdin, Path("/Users/akapelyushok/Projects/intellij-community"), cfg)
         stdinReader.cancel()
     }
 }
@@ -44,11 +48,11 @@ private suspend fun readStdin(output: SendChannel<String>) {
     }
 }
 
-private suspend fun runIndex(input: ReceiveChannel<String>, dir: Path) {
+private suspend fun runIndex(input: ReceiveChannel<String>, dir: Path, cfg: IndexConfig) {
     while (true) {
         try {
             withContext(Dispatchers.Default) {
-                val index = launchIndex(dir)
+                val index = launchIndex(dir, cfg)
                 runCmdHandler(input, index)
                 index.cancel()
             }
@@ -82,7 +86,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "/enable-logging" -> {
-                enableLogging.set(true)
+                index.enableLogging()
             }
 
             prompt == "/status" -> {
@@ -101,7 +105,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "" -> {
-                enableLogging.set(false)
+                index.disableLogging()
             }
 
             prompt == "/error" -> {

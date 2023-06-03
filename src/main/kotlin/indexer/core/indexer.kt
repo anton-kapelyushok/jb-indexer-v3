@@ -9,11 +9,15 @@ import kotlin.io.path.Path
 import kotlin.io.path.fileSize
 import kotlin.io.path.readLines
 
-internal suspend fun indexer(watchEvents: ReceiveChannel<FileEvent>, indexRequests: SendChannel<IndexRequest>) {
+internal suspend fun indexer(
+    cfg: IndexConfig,
+    watchEvents: ReceiveChannel<FileEvent>,
+    indexRequests: SendChannel<IndexRequest>
+) {
     for (event in watchEvents) {
-        if (enableLogging.get()) println("indexer: $event")
+        if (cfg.enableLogging.get()) println("indexer: $event")
         when (event.type) {
-            CREATE, MODIFY -> handleUpdated(event, indexRequests)
+            CREATE, MODIFY -> handleUpdated(cfg, event, indexRequests)
             DELETE -> handleRemoved(event, indexRequests)
         }
     }
@@ -23,7 +27,7 @@ private suspend fun handleRemoved(event: FileEvent, indexRequests: SendChannel<I
     indexRequests.send(RemoveFileRequest(event.t, event.path, event.source))
 }
 
-private suspend fun handleUpdated(event: FileEvent, indexRequests: SendChannel<IndexRequest>) {
+private suspend fun handleUpdated(cfg: IndexConfig, event: FileEvent, indexRequests: SendChannel<IndexRequest>) {
     withContext(Dispatchers.IO) {
         val path = Path(event.path)
         try {
@@ -34,7 +38,7 @@ private suspend fun handleUpdated(event: FileEvent, indexRequests: SendChannel<I
             }
 
             val tokens = path.readLines()
-                .flatMap { tokenize(it) }
+                .flatMap { cfg.tokenize(it) }
                 .toSet()
 
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, tokens, event.source))

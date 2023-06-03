@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
 internal suspend fun watcher(
+    cfg: IndexConfig,
     dir: Path,
     fileEvents: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>
@@ -24,8 +25,10 @@ internal suspend fun watcher(
     val watcherStartedLatch = CompletableDeferred<Unit>()
     val initialSyncCompleteLatch = CompletableDeferred<Unit>()
 
-    launch { watch(dir, clock, fileEvents, statusUpdates, initialSyncCompleteLatch, watcherStartedLatch) }
-    watcherStartedLatch.await()
+    if (cfg.enableWatcher) {
+        launch { watch(dir, clock, fileEvents, statusUpdates, initialSyncCompleteLatch, watcherStartedLatch) }
+        watcherStartedLatch.await()
+    }
 
     emitInitialContent(dir, clock, initialSyncCompleteLatch, fileEvents, statusUpdates)
 }
