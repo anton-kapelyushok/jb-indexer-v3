@@ -28,7 +28,8 @@ private suspend fun handleUpdated(event: FileEvent, indexRequests: SendChannel<I
         val path = Path(event.path)
         try {
             if (path.fileSize() > 10_000_000L) {
-                // file to large
+                // file to large, skip
+                indexRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
                 return@withContext
             }
 
@@ -38,6 +39,7 @@ private suspend fun handleUpdated(event: FileEvent, indexRequests: SendChannel<I
 
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, tokens, event.source))
         } catch (e: Throwable) {
+            indexRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
 //            println("Failed to read ${event.path}: $e")
         }
     }

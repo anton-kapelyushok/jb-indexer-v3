@@ -18,13 +18,14 @@ fun CoroutineScope.launchIndex(dir: Path): Index {
     })
 
     val job = launch {
+        val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
         val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
-        launch(CoroutineName("watcher")) { watcher(dir, fileEvents) }
-        repeat(4) {
+        launch(CoroutineName("watcher")) { watcher(dir, fileEvents, statusUpdates) }
+        repeat(2) {
             launch(CoroutineName("indexer-$it")) { indexer(fileEvents, indexRequests) }
         }
         launch(CoroutineName("index")) {
-            index(indexRequests)
+            index(indexRequests, statusUpdates)
         }
     }
 

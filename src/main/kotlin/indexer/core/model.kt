@@ -5,7 +5,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 
-
 interface Index : Job {
     suspend fun status(): StatusResult
     suspend fun find(query: String): Flow<SearchResult>
@@ -30,6 +29,12 @@ data class FileEvent(
     val source: FileEventSource,
     val type: FileEventType,
 )
+
+sealed interface StatusUpdate
+object WatcherStarted : StatusUpdate
+object AllFilesDiscovered : StatusUpdate
+object WatcherDiscoveredFileDuringInitialization: StatusUpdate
+data class ModificationHappened(val source: FileEventSource) : StatusUpdate
 
 sealed interface IndexRequest {
     fun onMessageLoss() {}
@@ -70,11 +75,10 @@ data class StatusResult(
     val knownTokens: Int,
     val watcherStartTime: Long?,
     val initialSyncTime: Long?,
+    val handledFileModifications: Long,
+    val totalFileModifications: Long
 )
 
 data class StatusRequest(
     val result: CompletableDeferred<StatusResult>
 ) : IndexRequest
-
-object SyncCompletedMessage : IndexRequest
-object WatcherStartedMessage : IndexRequest
