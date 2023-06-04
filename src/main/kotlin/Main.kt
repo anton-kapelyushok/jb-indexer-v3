@@ -1,5 +1,5 @@
 import indexer.core.Index
-import indexer.core.launchRessurectingIndex
+import indexer.core.launchResurrectingIndex
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -22,7 +22,7 @@ fun main() {
 //        val dir = "/Users/akapelyushok/git_tree/main"
 //        val dir = "/Users/akapelyushok/Projects/intellij-community"
 
-        val index = launchRessurectingIndex(this, Path(dir), cfg)
+        val index = launchResurrectingIndex(this, Path(dir), cfg)
 
         launch {
             index.statusFlow().collect {
