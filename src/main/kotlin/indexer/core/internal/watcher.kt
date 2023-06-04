@@ -1,8 +1,9 @@
-package indexer.core
+package indexer.core.internal
 
-import indexer.core.FileEventSource.INITIAL_SYNC
-import indexer.core.FileEventSource.WATCHER
-import indexer.core.FileEventType.*
+import indexer.core.IndexConfig
+import indexer.core.internal.FileEventSource.INITIAL_SYNC
+import indexer.core.internal.FileEventSource.WATCHER
+import indexer.core.internal.FileEventType.*
 import io.methvin.watcher.DirectoryChangeEvent
 import io.methvin.watcher.DirectoryChangeListener
 import io.methvin.watcher.DirectoryWatcher
@@ -150,4 +151,4 @@ private fun buildWatcher(
     })
     .build()
 
-class WatcherOverflowException : RuntimeException()
+internal class WatcherOverflowException : RuntimeException()

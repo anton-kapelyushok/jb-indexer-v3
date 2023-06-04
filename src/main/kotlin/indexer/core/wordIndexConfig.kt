@@ -1,5 +1,6 @@
 package indexer.core
 
+import indexer.core.internal.FileAddress
 import java.util.concurrent.atomic.AtomicBoolean
 
 fun wordIndexConfig(

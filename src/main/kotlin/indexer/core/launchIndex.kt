@@ -1,5 +1,15 @@
 package indexer.core
 
+import indexer.core.internal.*
+import indexer.core.internal.FileEvent
+import indexer.core.internal.FindRequest
+import indexer.core.internal.IndexUpdateRequest
+import indexer.core.internal.StatusRequest
+import indexer.core.internal.StatusUpdate
+import indexer.core.internal.UserRequest
+import indexer.core.internal.index
+import indexer.core.internal.indexer
+import indexer.core.internal.watcher
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*

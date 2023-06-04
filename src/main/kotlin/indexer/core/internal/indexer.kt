@@ -1,6 +1,7 @@
-package indexer.core
+package indexer.core.internal
 
-import indexer.core.FileEventType.*
+import indexer.core.IndexConfig
+import indexer.core.internal.FileEventType.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel

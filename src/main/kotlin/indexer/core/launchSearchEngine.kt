@@ -1,5 +1,8 @@
 package indexer.core
 
+import indexer.core.internal.*
+import indexer.core.internal.SearchInFileRequest
+import indexer.core.internal.searchInFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*

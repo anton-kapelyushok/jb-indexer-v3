@@ -1,4 +1,4 @@
-package indexer.core
+package indexer.core.internal
 
 import kotlinx.coroutines.*
 

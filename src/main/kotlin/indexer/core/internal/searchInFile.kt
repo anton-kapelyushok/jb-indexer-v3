@@ -1,5 +1,7 @@
-package indexer.core
+package indexer.core.internal
 
+import indexer.core.IndexConfig
+import indexer.core.SearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.withContext
