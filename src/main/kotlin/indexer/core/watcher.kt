@@ -78,16 +78,15 @@ internal suspend fun watch(
             coroutineContext,
             dir, clock, initialSyncCompleteLatch, outputChannel, statusUpdates
         )
-
-        invokeOnCancellation({ watcher.close() }) {
-            runInterruptible {
-                val f = watcher.watchAsync()
-                runBlocking(coroutineContext) {
-                    statusUpdates.send(WatcherStarted)
-                    watcherStartedLatch.complete(Unit)
-                }
-                f.join()
+        invokeOnCancellation(this) { watcher.close() }
+        runInterruptible {
+            println("Starting watcher!")
+            val f = watcher.watchAsync()
+            runBlocking(coroutineContext) {
+                statusUpdates.send(WatcherStarted)
+                watcherStartedLatch.complete(Unit)
             }
+            f.join()
         }
     }
 }
@@ -133,7 +132,7 @@ private fun buildWatcher(
                     }
 
                     DirectoryChangeEvent.EventType.MODIFY -> {
-//                        if (event.path().toString().contains("poupa")) error("onMOdify")
+//                        if (event.path().toString().contains("poupa")) error("onModify")
                         outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, MODIFY))
                     }
 

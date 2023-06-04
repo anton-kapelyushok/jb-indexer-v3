@@ -101,7 +101,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
         forwardIndex.remove(fa)
     }
 
-    fun handleStatusRequest(event: StatusRequest) {
+    suspend fun handleStatusRequest(event: StatusRequest) {
         event.result.complete(
             StatusResult(
                 indexedFiles = forwardIndex.size,
@@ -117,18 +117,20 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
                 } else {
                     totalModifications
                 },
-                isBroken = false,
+                isBroken = coroutineContext.isActive,
                 generation = generation
             )
         )
     }
 
-    fun handleFindRequest(event: FindRequest) {
+    suspend fun handleFindRequest(event: FindRequest) {
         val result = event.result
 
+        val indexContext = coroutineContext
+
         val flow = flow {
-            val ctx = coroutineContext
-            cfg.find(event.query, forwardIndex, reverseIndex, ctx::isActive)
+            val consumerContext = coroutineContext
+            cfg.find(event.query, forwardIndex, reverseIndex) { indexContext.isActive && consumerContext.isActive }
                 .distinct()
                 .forEach { emit(it) }
         }

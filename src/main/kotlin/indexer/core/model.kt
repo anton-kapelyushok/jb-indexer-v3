@@ -5,7 +5,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.atomic.AtomicBoolean
 
-interface Index : Deferred<Any> {
+interface Index : Deferred<Any?> {
     suspend fun status(): StatusResult
     suspend fun find(query: String): Flow<SearchResult>
     suspend fun enableLogging()

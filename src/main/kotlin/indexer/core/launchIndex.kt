@@ -23,7 +23,7 @@ suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
                     if (e is CancellationException) {
                         this.ensureActive()
                     }
-                    println("Index failed with $e, restarting!")
+                    println("Index failed with $e, rebuilding index!")
                     if (cfg.enableLogging.get()) e.printStackTrace(System.out)
                     println()
                 }
@@ -33,7 +33,7 @@ suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
 
     startedLatch.await()
 
-    return object : Index, Deferred<Any> by job {
+    return object : Index, Deferred<Any?> by job {
         override suspend fun status(): StatusResult {
             return indexRef.get().status()
         }
@@ -74,7 +74,7 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
                 launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
             }
         }
-        true // wtf
+        null // wtf
     }
 
     job.invokeOnCompletion {
@@ -85,7 +85,7 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
         fileEvents.cancel(it?.let { CancellationException(it.message, it) })
     }
 
-    return object : Index, Deferred<Any> by job {
+    return object : Index, Deferred<Any?> by job {
         override suspend fun status(): StatusResult {
             return withIndexContext {
                 val future = CompletableDeferred<StatusResult>()
