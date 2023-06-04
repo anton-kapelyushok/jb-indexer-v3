@@ -188,7 +188,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
         } else {
             totalModifications
         },
-        isBroken = coroutineContext.isActive,
+        isBroken = !coroutineContext.isActive,
         generation = generation
     )
 
