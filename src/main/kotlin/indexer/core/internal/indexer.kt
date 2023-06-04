@@ -26,7 +26,7 @@ internal suspend fun indexer(
 }
 
 private suspend fun handleRemoved(event: FileEvent, indexUpdateRequests: SendChannel<IndexUpdateRequest>) {
-    indexUpdateRequests.send(RemoveFileRequest(event.t, event.path, event.source))
+    indexUpdateRequests.send(RemoveFileRequest(event.t, event.fileAddress, event.source))
 }
 
 private suspend fun handleUpdated(
@@ -35,11 +35,11 @@ private suspend fun handleUpdated(
     indexUpdateRequests: SendChannel<IndexUpdateRequest>
 ) {
     withContext(Dispatchers.IO) {
-        val path = Path(event.path)
+        val path = Path(event.fileAddress.path)
         try {
             if (path.fileSize() > 10_000_000L) {
                 // file too large, skip
-                indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
+                indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, emptySet(), event.source))
                 return@withContext
             }
 
@@ -47,10 +47,10 @@ private suspend fun handleUpdated(
                 .flatMap { cfg.tokenize(it) }
                 .toSet()
 
-            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.path, tokens, event.source))
+            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, tokens, event.source))
         } catch (e: IOException) {
-            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
-            if (cfg.enableLogging.get()) println("Failed to read ${event.path}: $e")
+            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, emptySet(), event.source))
+            if (cfg.enableLogging.get()) println("Failed to read ${event.fileAddress}: $e")
         }
     }
 }

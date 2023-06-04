@@ -1,5 +1,7 @@
 package indexer.core.internal
 
+import com.google.common.collect.Interner
+import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventSource.INITIAL_SYNC
 import indexer.core.internal.FileEventSource.WATCHER
@@ -23,20 +25,32 @@ internal suspend fun watcher(
     statusUpdates: SendChannel<StatusUpdate>
 ) = coroutineScope {
     val clock = AtomicLong(0L)
+    val faInterner = Interners.newWeakInterner<FileAddress>()
     val watcherStartedLatch = CompletableDeferred<Unit>()
     val initialSyncCompleteLatch = CompletableDeferred<Unit>()
 
     if (cfg.enableWatcher) {
-        launch { watch(dir, clock, fileEvents, statusUpdates, initialSyncCompleteLatch, watcherStartedLatch) }
+        launch {
+            watch(
+                dir,
+                clock,
+                faInterner,
+                fileEvents,
+                statusUpdates,
+                initialSyncCompleteLatch,
+                watcherStartedLatch
+            )
+        }
         watcherStartedLatch.await()
     }
 
-    emitInitialContent(dir, clock, initialSyncCompleteLatch, fileEvents, statusUpdates)
+    emitInitialContent(dir, clock, faInterner, initialSyncCompleteLatch, fileEvents, statusUpdates)
 }
 
 internal suspend fun emitInitialContent(
     dir: Path,
     clock: AtomicLong,
+    faInterner: Interner<FileAddress>,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
     outputChannel: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
@@ -52,7 +66,7 @@ internal suspend fun emitInitialContent(
                             outputChannel.send(
                                 FileEvent(
                                     clock.incrementAndGet(),
-                                    it.toFile().canonicalPath,
+                                    it.toFile().canonicalPath.toFileAddress(faInterner),
                                     INITIAL_SYNC,
                                     CREATE,
                                 )
@@ -69,6 +83,7 @@ internal suspend fun emitInitialContent(
 internal suspend fun watch(
     dir: Path,
     clock: AtomicLong,
+    faInterner: Interner<FileAddress>,
     outputChannel: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
@@ -77,7 +92,7 @@ internal suspend fun watch(
     withContext(Dispatchers.IO) {
         val watcher = buildWatcher(
             coroutineContext,
-            dir, clock, initialSyncCompleteLatch, outputChannel, statusUpdates
+            dir, clock, faInterner, initialSyncCompleteLatch, outputChannel, statusUpdates
         )
         invokeOnCancellation(this) { watcher.close() }
         runInterruptible {
@@ -95,6 +110,7 @@ private fun buildWatcher(
     ctx: CoroutineContext,
     dir: Path,
     clock: AtomicLong,
+    faInterner: Interner<FileAddress>,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
     outputChannel: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
@@ -128,16 +144,35 @@ private fun buildWatcher(
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
                         outputChannel.send(
-                            FileEvent(t, event.path().toFile().canonicalPath, WATCHER, CREATE)
+                            FileEvent(
+                                t = t,
+                                fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
+                                source = WATCHER,
+                                type = CREATE
+                            )
                         )
                     }
 
                     DirectoryChangeEvent.EventType.MODIFY -> {
-                        outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, MODIFY))
+                        outputChannel.send(
+                            FileEvent(
+                                t = t,
+                                fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
+                                source = WATCHER,
+                                type = MODIFY
+                            )
+                        )
                     }
 
                     DirectoryChangeEvent.EventType.DELETE -> {
-                        outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, DELETE))
+                        outputChannel.send(
+                            FileEvent(
+                                t = t,
+                                fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
+                                source = WATCHER,
+                                type = DELETE
+                            )
+                        )
                     }
 
                     DirectoryChangeEvent.EventType.OVERFLOW -> throw WatcherOverflowException()
@@ -152,3 +187,5 @@ private fun buildWatcher(
     .build()
 
 internal class WatcherOverflowException : RuntimeException()
+
+private fun String.toFileAddress(interner: Interner<FileAddress>) = interner.intern(FileAddress(this))

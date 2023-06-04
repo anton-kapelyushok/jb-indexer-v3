@@ -18,7 +18,7 @@ internal enum class FileEventType {
 
 internal data class FileEvent(
     val t: Long,
-    val path: String,
+    val fileAddress: FileAddress,
     val source: FileEventSource,
     val type: FileEventType,
 )
@@ -33,18 +33,14 @@ internal sealed interface IndexUpdateRequest
 
 internal data class UpdateFileContentRequest(
     val t: Long,
-    val path: String,
+    val fileAddress: FileAddress,
     val tokens: Set<String>,
     val source: FileEventSource,
-) : IndexUpdateRequest {
-    override fun toString(): String {
-        return "UpdateFileContentRequest($path)"
-    }
-}
+) : IndexUpdateRequest
 
 internal data class RemoveFileRequest(
     val t: Long,
-    val path: String,
+    val fileAddress: FileAddress,
     val source: FileEventSource,
 ) : IndexUpdateRequest
 

@@ -1,5 +1,6 @@
 package indexer.core.internal
 
+import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.IndexStatus
 import indexer.core.IndexStatusUpdate
@@ -77,9 +78,7 @@ private class IndexState(
     var syncCompletedTime: Long? = null
     var allFilesDiscoveredTime: Long? = null
 
-    // TODO: check if it actually works
-    val fileAddressInterner = WeakHashMap<String, FileAddress>()
-    val tokenInterner = WeakHashMap<String, String>()
+    val tokenInterner = Interners.newWeakInterner<String>()
     val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
 
     val forwardIndex = ConcurrentHashMap<FileAddress, MutableSet<String>>()
@@ -94,12 +93,11 @@ private class IndexState(
     suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         updateModificationsCounts()
 
-        val path = event.path
-        val fa = fileAddressInterner.computeIfAbsent(path) { FileAddress(it) }
+        val fa = event.fileAddress
 
         checkUpdateTime(event.t, fa) ?: return
 
-        val tokens = event.tokens.map { token -> tokenInterner.computeIfAbsent(token) { it } }
+        val tokens = event.tokens.map { token -> tokenInterner.intern(token) }
 
         forwardIndex[fa]?.let { prevTokens ->
             prevTokens.forEach { reverseIndex[it]?.remove(fa) }
@@ -111,8 +109,7 @@ private class IndexState(
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
         updateModificationsCounts()
-        val path = event.path
-        val fa = fileAddressInterner.computeIfAbsent(path) { FileAddress(it) }
+        val fa = event.fileAddress
 
         checkUpdateTime(event.t, fa) ?: return
 
