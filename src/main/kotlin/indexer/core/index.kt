@@ -13,43 +13,47 @@ data class FileAddress(val path: String)
 
 internal suspend fun index(
     cfg: IndexConfig,
+    generation: Int,
     userRequests: ReceiveChannel<UserRequest>,
     indexRequests: ReceiveChannel<IndexRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
 ) = coroutineScope {
-    val index = IndexState(cfg)
-    while (true) {
-        select {
-            statusUpdates.onReceive { event ->
-                if (cfg.enableLogging.get()) println("statusUpdates: $event")
-                when (event) {
-                    AllFilesDiscovered -> index.handleAllFilesDiscovered()
-                    WatcherStarted -> index.handleWatcherStarted()
-                    is ModificationHappened -> index.handleModificationHappened()
-                    WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
+    val index = IndexState(cfg, generation)
+    try {
+        while (true) {
+            select {
+                statusUpdates.onReceive { event ->
+                    if (cfg.enableLogging.get()) println("statusUpdates: $event")
+                    when (event) {
+                        AllFilesDiscovered -> index.handleAllFilesDiscovered()
+                        WatcherStarted -> index.handleWatcherStarted()
+                        is ModificationHappened -> index.handleModificationHappened()
+                        WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
+                    }
                 }
-            }
-            userRequests.onReceive { event ->
-                if (cfg.enableLogging.get()) println("userRequests: $event")
-                when (event) {
-                    is FindRequest -> index.handleFindRequest(event)
-                    is StatusRequest -> index.handleStatusRequest(event)
+                userRequests.onReceive { event ->
+                    if (cfg.enableLogging.get()) println("userRequests: $event")
+                    when (event) {
+                        is FindRequest -> index.handleFindRequest(event)
+                        is StatusRequest -> index.handleStatusRequest(event)
+                    }
                 }
-            }
-            indexRequests.onReceive { event ->
-                if (cfg.enableLogging.get()) println("indexRequests: $event")
+                indexRequests.onReceive { event ->
+                    if (cfg.enableLogging.get()) println("indexRequests: $event")
 
-                when (event) {
-                    is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
-                    is RemoveFileRequest -> index.handleRemoveFileRequest(event)
+                    when (event) {
+                        is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
+                        is RemoveFileRequest -> index.handleRemoveFileRequest(event)
+                    }
                 }
             }
-
         }
+    } finally {
+        index.teardown()
     }
 }
 
-private class IndexState(val cfg: IndexConfig) {
+private class IndexState(val cfg: IndexConfig, val generation: Int) {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -112,7 +116,9 @@ private class IndexState(val cfg: IndexConfig) {
                     )
                 } else {
                     totalModifications
-                }
+                },
+                isBroken = false,
+                generation = generation
             )
         )
     }
@@ -145,6 +151,11 @@ private class IndexState(val cfg: IndexConfig) {
 
     fun handleWatcherDiscoveredFileDuringInitialization() {
         filesDiscoveredByWatcherDuringInitialization++
+    }
+
+    fun teardown() {
+        forwardIndex.clear()
+        reverseIndex.clear()
     }
 
     private fun updateModificationsCounts() {

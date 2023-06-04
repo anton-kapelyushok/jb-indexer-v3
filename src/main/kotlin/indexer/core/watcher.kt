@@ -133,6 +133,7 @@ private fun buildWatcher(
                     }
 
                     DirectoryChangeEvent.EventType.MODIFY -> {
+//                        if (event.path().toString().contains("poupa")) error("onMOdify")
                         outputChannel.send(FileEvent(t, event.path().toFile().canonicalPath, WATCHER, MODIFY))
                     }
 

@@ -4,9 +4,56 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicReference
+
+suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
+    val indexRef = AtomicReference<Index>()
+    val startedLatch = CompletableDeferred<Unit>()
+
+    val job = parentScope.async {
+        supervisorScope {
+            var generation = 1
+            while (true) {
+                try {
+                    val index = this.launchIndex(dir, cfg, generation++)
+                    indexRef.set(index)
+                    startedLatch.complete(Unit)
+                    index.await()
+                } catch (e: Throwable) {
+                    if (e is CancellationException) {
+                        this.ensureActive()
+                    }
+                    println("Index failed with $e, restarting!")
+                    if (cfg.enableLogging.get()) e.printStackTrace(System.out)
+                    println()
+                }
+            }
+        }
+    }
+
+    startedLatch.await()
+
+    return object : Index, Deferred<Any> by job {
+        override suspend fun status(): StatusResult {
+            return indexRef.get().status()
+        }
+
+        override suspend fun find(query: String): Flow<SearchResult> {
+            return indexRef.get().find(query)
+        }
+
+        override suspend fun enableLogging() {
+            return indexRef.get().enableLogging()
+        }
+
+        override suspend fun disableLogging() {
+            return indexRef.get().disableLogging()
+        }
+    }
+}
 
 @OptIn(ExperimentalCoroutinesApi::class)
-fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
+fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0): Index {
 
     val userRequests = Channel<UserRequest>()
     val searchInFileRequests = Channel<SearchInFileRequest>()
@@ -14,26 +61,37 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
 
-    val job = launch {
-        launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
-        repeat(4) {
-            launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexRequests) }
+    val job = async {
+        coroutineScope {
+            launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
+            repeat(4) {
+                launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexRequests) }
+            }
+            launch(CoroutineName("index")) {
+                index(cfg, generation, userRequests, indexRequests, statusUpdates)
+            }
+            repeat(4) {
+                launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
+            }
         }
-        launch(CoroutineName("index")) {
-            index(cfg, userRequests, indexRequests, statusUpdates)
-        }
-        repeat(4) {
-            launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
-        }
+        true // wtf
     }
 
-    return object : Index, Job by job {
+    job.invokeOnCompletion {
+        userRequests.cancel(it?.let { CancellationException(it.message, it) })
+        searchInFileRequests.cancel(it?.let { CancellationException(it.message, it) })
+        indexRequests.cancel(it?.let { CancellationException(it.message, it) })
+        statusUpdates.cancel(it?.let { CancellationException(it.message, it) })
+        fileEvents.cancel(it?.let { CancellationException(it.message, it) })
+    }
+
+    return object : Index, Deferred<Any> by job {
         override suspend fun status(): StatusResult {
             return withIndexContext {
                 val future = CompletableDeferred<StatusResult>()
                 userRequests.send(StatusRequest(future))
                 future.await()
-            }
+            } ?: StatusResult.broken()
         }
 
         override suspend fun find(query: String): Flow<SearchResult> {
@@ -48,12 +106,14 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
                 flow
                     .buffer(Int.MAX_VALUE)
                     .map { fa ->
-                        val flowFuture = CompletableDeferred<Flow<SearchResult>>()
-                        searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
-                        flowFuture.await()
+                        withIndexContext {
+                            val flowFuture = CompletableDeferred<Flow<SearchResult>>()
+                            searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
+                            flowFuture.await()
+                        } ?: flowOf()
                     }
                     .flattenMerge(concurrency = 4) // bounded by searchInFile coroutine concurrency
-            }
+            } ?: flowOf()
         }
 
         override suspend fun enableLogging() {
@@ -65,16 +125,16 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig): Index {
         }
 
         // future.await() may get stuck if index gets canceled while message is inflight
-        private suspend fun <T> withIndexContext(
+        private suspend fun <T : Any> withIndexContext(
             block: suspend CoroutineScope.() -> T
-        ): T {
-            return try {
+        ): T? = coroutineScope {
+            try {
                 withContext(job) {
                     block()
                 }
             } catch (e: CancellationException) {
-                ensureActive()
-                throw RuntimeException("Index was cancelled during your operation :(", e)
+                this@coroutineScope.ensureActive()
+                null
             }
         }
     }

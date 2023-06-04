@@ -1,11 +1,11 @@
 package indexer.core
 
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.atomic.AtomicBoolean
 
-interface Index : Job {
+interface Index : Deferred<Any> {
     suspend fun status(): StatusResult
     suspend fun find(query: String): Flow<SearchResult>
     suspend fun enableLogging()
@@ -40,8 +40,14 @@ data class StatusResult(
     val watcherStartTime: Long?,
     val initialSyncTime: Long?,
     val handledFileModifications: Long,
-    val totalFileModifications: Long
-)
+    val totalFileModifications: Long,
+    val isBroken: Boolean,
+    val generation: Int,
+) {
+    companion object {
+        fun broken() = StatusResult(0, 0, null, null, 0L, 0L, true, 0)
+    }
+}
 
 internal enum class FileEventSource {
     INITIAL_SYNC,

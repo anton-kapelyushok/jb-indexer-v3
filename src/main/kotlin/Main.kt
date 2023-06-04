@@ -1,6 +1,5 @@
 import indexer.core.Index
-import indexer.core.IndexConfig
-import indexer.core.launchIndex
+import indexer.core.launchRessurectingIndex
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -8,22 +7,25 @@ import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.selects.select
 import java.lang.management.ManagementFactory
-import java.nio.file.Path
 import java.util.concurrent.Executors
-import kotlin.coroutines.coroutineContext
 import kotlin.io.path.Path
 
 fun main() {
-    runBlocking {
+    runBlocking(Dispatchers.Default) {
         val stdin = Channel<String>()
         val stdinReader = launch { readStdin(stdin) }
 
         val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-//        runIndex(stdin, Path("."), cfg)
-//        runIndex(stdin, Path("/Users/akapelyushok/git_tree/main"), cfg)
-        runIndex(stdin, Path("/Users/akapelyushok/Projects/intellij-community"), cfg)
+//        val dir = "."
+//        val dir = "/Users/akapelyushok/git_tree/main"
+        val dir = "/Users/akapelyushok/Projects/intellij-community"
+
+        val index = launchRessurectingIndex(this, Path(dir), cfg)
+        runCmdHandler(stdin, index)
+        index.cancel()
+
         stdinReader.cancel()
     }
 }
@@ -45,26 +47,6 @@ private suspend fun readStdin(output: SendChannel<String>) {
 
         runInterruptible {
             future.get()
-        }
-    }
-}
-
-private suspend fun runIndex(input: ReceiveChannel<String>, dir: Path, cfg: IndexConfig) {
-    while (true) {
-        try {
-            withContext(Dispatchers.Default) {
-                val index = launchIndex(dir, cfg)
-                runCmdHandler(input, index)
-                index.cancel()
-            }
-            break
-        } catch (e: Throwable) {
-            if (e is CancellationException) {
-                coroutineContext.ensureActive()
-            }
-            println("Indexer failed with $e")
-            e.printStackTrace(System.out)
-            println("Restarting!")
         }
     }
 }
@@ -121,7 +103,9 @@ private suspend fun runCmdHandler(
 
                     val initialStatus = index.status()
                     val showInitialWarning =
-                        initialStatus.initialSyncTime == null || initialStatus.handledFileModifications != initialStatus.totalFileModifications
+                        initialStatus.initialSyncTime == null
+                                || initialStatus.handledFileModifications != initialStatus.totalFileModifications
+                                || initialStatus.isBroken
                     if (showInitialWarning) {
                         println("Directory is not fully indexed yet, results might be incomplete or outdated")
                         println()
@@ -138,7 +122,10 @@ private suspend fun runCmdHandler(
 
                     if (!showInitialWarning) {
                         val currentStatus = index.status()
-                        if (currentStatus.totalFileModifications != initialStatus.totalFileModifications) {
+                        if (currentStatus.totalFileModifications != initialStatus.totalFileModifications
+                            || currentStatus.generation != initialStatus.generation
+                            || currentStatus.isBroken
+                        ) {
                             println("Directory content has changed during search, results might be incomplete or outdated")
                             println()
                         }
