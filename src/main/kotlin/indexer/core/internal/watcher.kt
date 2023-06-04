@@ -24,27 +24,41 @@ internal suspend fun watcher(
     fileEvents: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>
 ) = coroutineScope {
+
     val clock = AtomicLong(0L)
     val faInterner = Interners.newWeakInterner<FileAddress>()
-    val watcherStartedLatch = CompletableDeferred<Unit>()
-    val initialSyncCompleteLatch = CompletableDeferred<Unit>()
 
-    if (cfg.enableWatcher) {
-        launch {
-            watch(
-                dir,
-                clock,
-                faInterner,
-                fileEvents,
-                statusUpdates,
-                initialSyncCompleteLatch,
-                watcherStartedLatch
-            )
+    while (true) {
+        val watcherStartedLatch = CompletableDeferred<Unit>()
+        val initialSyncCompleteLatch = CompletableDeferred<Unit>()
+
+        val watcherDeferred = if (cfg.enableWatcher) {
+            val deferred = async {
+                watch(
+                    dir,
+                    clock,
+                    faInterner,
+                    fileEvents,
+                    statusUpdates,
+                    initialSyncCompleteLatch,
+                    watcherStartedLatch
+                )
+            }
+            watcherStartedLatch.await()
+            deferred
+        } else {
+            CompletableDeferred() // never completes
         }
-        watcherStartedLatch.await()
-    }
 
-    emitInitialContent(dir, clock, faInterner, initialSyncCompleteLatch, fileEvents, statusUpdates)
+        emitInitialContent(dir, clock, faInterner, initialSyncCompleteLatch, fileEvents, statusUpdates)
+
+        val watcherResult = watcherDeferred.await()
+        val watcherException = watcherResult.exceptionOrNull()
+            ?: IllegalStateException("Watcher completed without exception for some reason")
+
+        cfg.handleWatcherError(watcherException)
+        statusUpdates.send(WatcherFailed(watcherException))
+    }
 }
 
 internal suspend fun emitInitialContent(
@@ -62,7 +76,7 @@ internal suspend fun emitInitialContent(
                     .filter(Files::isRegularFile)
                     .forEach {
                         runBlocking(coroutineContext + Dispatchers.Unconfined) {
-                            statusUpdates.send(ModificationHappened(INITIAL_SYNC))
+                            statusUpdates.send(FileUpdated(INITIAL_SYNC))
                             outputChannel.send(
                                 FileEvent(
                                     clock.incrementAndGet(),
@@ -88,20 +102,22 @@ internal suspend fun watch(
     statusUpdates: SendChannel<StatusUpdate>,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
     watcherStartedLatch: CompletableDeferred<Unit>,
-) {
-    withContext(Dispatchers.IO) {
-        val watcher = buildWatcher(
-            coroutineContext,
-            dir, clock, faInterner, initialSyncCompleteLatch, outputChannel, statusUpdates
-        )
-        invokeOnCancellation(this) { watcher.close() }
-        runInterruptible {
-            val f = watcher.watchAsync()
-            runBlocking(coroutineContext) {
-                statusUpdates.send(WatcherStarted)
-                watcherStartedLatch.complete(Unit)
+): Result<Any> {
+    return runCatching {
+        withContext(Dispatchers.IO) {
+            val watcher = buildWatcher(
+                coroutineContext,
+                dir, clock, faInterner, initialSyncCompleteLatch, outputChannel, statusUpdates
+            )
+            invokeOnCancellation(this) { watcher.close() }
+            runInterruptible {
+                val f = watcher.watchAsync()
+                runBlocking(coroutineContext) {
+                    statusUpdates.send(WatcherStarted)
+                    watcherStartedLatch.complete(Unit)
+                }
+                f.join()
             }
-            f.join()
         }
     }
 }
@@ -139,7 +155,7 @@ private fun buildWatcher(
                 initialSyncCompleteLatch.await()
 
                 val t = clock.incrementAndGet()
-                statusUpdates.send(ModificationHappened(WATCHER))
+                statusUpdates.send(FileUpdated(WATCHER))
 
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {

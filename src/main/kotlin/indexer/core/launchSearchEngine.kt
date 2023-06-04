@@ -6,10 +6,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
-suspend fun launchSearchEngine(scope: CoroutineScope, cfg: IndexConfig, index: Index): SearchEngine {
+fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEngine {
     val searchInFileRequests = Channel<SearchInFileRequest>()
 
-    val deferred = scope.async {
+    val deferred = async {
         repeat(4) {
             launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
         }
@@ -26,7 +26,7 @@ suspend fun launchSearchEngine(scope: CoroutineScope, cfg: IndexConfig, index: I
             return index.status()
         }
 
-        override suspend fun indexStatusUpdates(): Flow<IndexStatusUpdate> {
+        override suspend fun indexStatusUpdates(): Flow<IndexStateUpdate> {
             return index.statusFlow()
         }
 

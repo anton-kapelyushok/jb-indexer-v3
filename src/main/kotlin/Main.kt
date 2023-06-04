@@ -15,67 +15,70 @@ fun main() {
             val stdin = Channel<String>()
             launch { readStdin(stdin) }
 
-            val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
+            val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-//            val dir = "."
+            val dir = "."
 //        val dir = "/Users/akapelyushok/git_tree/main"
-            val dir = "/Users/akapelyushok/Projects/intellij-community"
+//            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
-            val index = launchResurrectingIndex(this, Path(dir), cfg)
-            val searchEngine = launchSearchEngine(this, cfg, index)
-
-            launch(CoroutineName("displayStatus")) {
-                var prevUpdate: IndexStatusUpdate? = null
-                searchEngine.indexStatusUpdates().collect { update ->
-                    when (update) {
-                        is IndexStatusUpdate.Initial -> {
-                            println("Index start!")
-                        } // ignore
-
-                        is IndexStatusUpdate.Initializing ->
-                            println("Initializing index!")
-
-                        is IndexStatusUpdate.InitialFileSyncCompleted ->
-                            println("Initial sync completed after ${update.status.initialSyncTime}ms!")
-
-                        is IndexStatusUpdate.AllFilesDiscovered ->
-                            println("All files discovered!")
-
-                        is IndexStatusUpdate.IndexFailed -> {
-                            println("Index failed with exception ${update.reason}")
-                            update.reason.printStackTrace(System.out)
-                        }
-
-                        is IndexStatusUpdate.Restarting ->
-                            println("Restarting index!")
-
-                        is IndexStatusUpdate.Terminated -> {
-                            val localPrevUpdate = prevUpdate
-
-                            if (localPrevUpdate is IndexStatusUpdate.IndexFailed
-                                && localPrevUpdate.reason == update.reason
-                            ) {
-                                println("Index terminated")
-                            } else {
-                                println("Index terminated with exception ${update.reason}")
-                                update.reason.printStackTrace(System.out)
-                            }
-                        }
-
-                        is IndexStatusUpdate.WatcherStarted ->
-                            println("Watcher started after ${update.status.watcherStartTime}ms!")
-                    }
-                    prevUpdate = update
-                    println()
-                }
-            }
+            val index = launchIndex(Path(dir), cfg)
+            val searchEngine = launchSearchEngine(cfg, index)
+            launchStatusDisplay(searchEngine)
 
             runCmdHandler(stdin, searchEngine, cfg)
-            searchEngine.cancel()
+
+            cancel()
         }
     } catch (e: CancellationException) {
         // ignore
+    }
+}
+
+private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
+    launch(CoroutineName("displayStatus")) {
+        var wasInSync = false
+        searchEngine.indexStatusUpdates().collect { update ->
+            when (update) {
+                is IndexStateUpdate.Initial -> {
+                    println("Index start!")
+                }
+
+                is IndexStateUpdate.Initializing ->
+                    println("Initializing index!")
+
+                is IndexStateUpdate.IndexInSync -> {
+                    if (!wasInSync) {
+                        wasInSync = true
+                        println("Initial sync completed after ${update.status.initialSyncTime}ms!")
+                    } else {
+                        println("Index in sync again!")
+                    }
+                }
+
+                is IndexStateUpdate.IndexOutOfSync -> {
+                    println("Index out of sync!")
+                }
+
+                is IndexStateUpdate.AllFilesDiscovered ->
+                    println("All files discovered!")
+
+                is IndexStateUpdate.Failed -> {
+                    println("Index failed with exception ${update.reason}")
+                    update.reason.printStackTrace(System.out)
+                }
+
+                is IndexStateUpdate.WatcherStarted ->
+                    println("Watcher started after ${update.status.watcherStartTime}ms!")
+
+                is IndexStateUpdate.ReinitializingBecauseWatcherFailed -> {
+                    wasInSync = false
+                    println("Watcher failed with ${update.reason}")
+                    update.reason.printStackTrace(System.out)
+                }
+            }
+            println()
+        }
     }
 }
 
@@ -154,7 +157,7 @@ private suspend fun runCmdHandler(
                     val initialStatus = searchEngine.indexStatus()
                     val showInitialWarning =
                         initialStatus.initialSyncTime == null
-                                || initialStatus.handledFileModifications != initialStatus.totalFileModifications
+                                || initialStatus.handledFileEvents != initialStatus.totalFileEvents
                                 || initialStatus.isBroken
                     if (showInitialWarning) {
                         println("Directory is not fully indexed yet, results might be incomplete or outdated")

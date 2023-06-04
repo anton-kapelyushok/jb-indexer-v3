@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 fun wordIndexConfig(
     enableWatcher: Boolean = true,
+    handleWatcherError: (e: Throwable) -> Unit = {},
 ) = object : IndexConfig {
     private val regex = Regex("""\W+""")
 
@@ -107,5 +108,9 @@ fun wordIndexConfig(
 
     override fun matches(line: String, query: String): Boolean {
         return line.contains(query)
+    }
+
+    override suspend fun handleWatcherError(e: Throwable) {
+        handleWatcherError(e)
     }
 }

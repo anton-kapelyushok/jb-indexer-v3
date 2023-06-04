@@ -2,41 +2,42 @@ package indexer.core
 
 import indexer.core.internal.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import java.nio.file.Path
 
-fun launchIndex(
-    scope: CoroutineScope,
+fun CoroutineScope.launchIndex(
     dir: Path,
     cfg: IndexConfig,
-    generation: Int = 0,
 ): Index {
     val userRequests = Channel<UserRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
-    val statusFlow = MutableStateFlow<IndexStatusUpdate>(
-        IndexStatusUpdate.Initial
+    val statusFlow = MutableSharedFlow<IndexStateUpdate>(
+        replay = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+    statusFlow.tryEmit(IndexStateUpdate.Initializing)
 
-    val deferred = scope.async {
+    val deferred = async {
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
         repeat(4) {
             launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
         }
         launch(CoroutineName("index")) {
-            index(cfg, generation, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
+            index(cfg, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
         }
     }
 
     deferred.invokeOnCompletion {
-        if (statusFlow.value !is IndexStatusUpdate.Terminated) {
-            statusFlow.value = IndexStatusUpdate.Terminated(
+        statusFlow.tryEmit(
+            IndexStateUpdate.Failed(
                 it
                     ?: IllegalStateException("Index terminated without exception?")
             )
-        }
+        )
     }
 
     return object : Index, Deferred<Any?> by deferred {
@@ -45,14 +46,14 @@ fun launchIndex(
                 val future = CompletableDeferred<IndexStatus>()
                 userRequests.send(StatusRequest(future))
                 future.await()
-            } ?: IndexStatus.initial()
+            } ?: IndexStatus.broken()
         }
 
-        override suspend fun statusFlow(): Flow<IndexStatusUpdate> {
+        override suspend fun statusFlow(): Flow<IndexStateUpdate> {
             return flow {
                 statusFlow
                     .onEach { emit(it) }
-                    .takeWhile { it !is IndexStatusUpdate.Terminated }
+                    .takeWhile { it !is IndexStateUpdate.Failed }
                     .collect()
             }
         }

@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 fun trigramIndexConfig(
     enableWatcher: Boolean = true,
+    handleWatcherError: suspend (e: Throwable) -> Unit = {},
 ) = object : IndexConfig {
     override val enableLogging = AtomicBoolean(false)
 
@@ -58,5 +59,9 @@ fun trigramIndexConfig(
 
     override fun matches(line: String, query: String): Boolean {
         return line.contains(query)
+    }
+
+    override suspend fun handleWatcherError(e: Throwable) {
+        handleWatcherError(e)
     }
 }

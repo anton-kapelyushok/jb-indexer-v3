@@ -25,9 +25,10 @@ internal data class FileEvent(
 
 internal sealed interface StatusUpdate
 internal object WatcherStarted : StatusUpdate
+internal data class WatcherFailed(val reason: Throwable) : StatusUpdate
 internal object AllFilesDiscovered : StatusUpdate
 internal object WatcherDiscoveredFileDuringInitialization : StatusUpdate
-internal data class ModificationHappened(val source: FileEventSource) : StatusUpdate
+internal data class FileUpdated(val source: FileEventSource) : StatusUpdate
 
 internal sealed interface IndexUpdateRequest
 
