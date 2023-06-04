@@ -1,6 +1,7 @@
 package indexer.core
 
 import indexer.core.internal.FileAddress
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.atomic.AtomicBoolean
@@ -15,6 +16,7 @@ interface SearchEngine : Deferred<Any?> {
     suspend fun indexStatus(): IndexStatus
     suspend fun indexStatusUpdates(): Flow<IndexStateUpdate>
     suspend fun find(query: String): Flow<IndexSearchResult>
+    suspend fun cancelAll(cause: CancellationException? = null)
 }
 
 interface IndexConfig {

@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.*
 fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEngine {
     val searchInFileRequests = Channel<SearchInFileRequest>()
 
-    val deferred = async {
+    val deferred = async(CoroutineName("launchSearchEngine")) {
         repeat(4) {
             launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
         }
@@ -31,9 +31,16 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
         }
 
         override suspend fun find(query: String): Flow<IndexSearchResult> {
-            return index.findFileCandidates(query)
-                .buffer(Int.MAX_VALUE)
-                .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
+            return withSearchEngineContext {
+                index.findFileCandidates(query)
+                    .buffer(Int.MAX_VALUE)
+                    .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
+            } ?: flowOf()
+        }
+
+        override suspend fun cancelAll(cause: CancellationException?) {
+            index.cancel(cause)
+            cancel()
         }
 
         private suspend fun searchInFile(fileCandidate: FileAddress, query: String): Flow<IndexSearchResult> = flow {

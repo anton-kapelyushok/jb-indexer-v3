@@ -21,7 +21,7 @@ fun CoroutineScope.launchIndex(
     )
     statusFlow.tryEmit(IndexStateUpdate.Initializing(System.currentTimeMillis()))
 
-    val deferred = async {
+    val deferred = async(CoroutineName("launchIndex")) {
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
         repeat(4) {
             launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }

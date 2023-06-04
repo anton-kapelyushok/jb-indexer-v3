@@ -34,51 +34,63 @@ Please also cover the library with a set of unit-tests. Your code should not use
 ## Usage example
 
 ```kotlin
+// use word index (trigram index can also be used)
+val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+
 // launch index in current scope
-val index = launchRessurectingIndex(scope, Path(dir), wordIndexConfig(watcherEnabled = true))
+val index = launchIndex(Path("."), cfg)
 
-// wait until initial sync is completed (only if you want to)
-index.statusFlow().filter { it.initialSyncTime != null }.first()
+// launch searchEngine in current scope
+val searchEngine = launchSearchEngine(cfg, index)
 
-// execute search query
-index.find("poupa loupa").collect { (path, lineNo, line) ->
-    println("$path:$lineNo")
-    println(line)
-}
+// wait until it is in sync
+searchEngine.indexStatusUpdates().first { it is IndexStateUpdate.IndexInSync }
 
-// get current status
-println(index.status())
+// execute some query
+searchEngine.find("some query").collect { println(it) }
 
-// cancel it
+// cancel both searchEngine and index 
+searchEngine.cancelAll()
+
+// or you can cancel searchEngine separately, without cancelling index
+searchEngine.cancel()
+
+// cancelling index will lead to searchEngine cancellation
 index.cancel()
 ```
 
 ## Design
 
-```
-+-----+                     +----+                            +------------+
-|index|<---userRequests-----|repl| ---searchInFileRequests--->|searchInFile|
-+-----+                     +----+                            +------------+
- ^  ^
- |  |
- |  |
- |  |
- |  +-------------------------+
- |                            |
- | indexUpdateRequests        | statusUpdates
- |                            |
-+-------+                    +-------+
-|indexer|<----file-events----|watcher|
-+-------+                    +-------+
+Two top level coroutines
+
+* launchIndex
+    * launches three types worker coroutines
+        * index - contains index state, answers user queries
+        * watcher - watches filesystem
+        * indexer - reads and parses files found by watcher
 
 ```
+# launchIndex
 
-Conceptually it is 4 coroutines:
++-----+                        O                     
+|index|<---userRequests-----  /|\
++-----+                       / \                   
+ ^  ^                                            
+ |  |                                            
+ |  |                                            
+ |  |                                            
+ |  +-------------------------+                  
+ |                            |                  
+ | indexUpdateRequests        | statusUpdates    
+ |                            |                  
++-------+                    +-------+         
+|indexer|<----fileEvents-----|watcher|         
++-------+                    +-------+         
+```
 
-* index - contains index state
-* watcher - synchronizes file system with index
-* indexer - reads and parses files to pass to index (in parallel)
-* searchInFile - finds query in file (in parallel)
+* searchEngine
+    * launches one type of worker
+        * searchInFile - reads file and checks if it matches query
 
 ### Design decisions
 
@@ -105,10 +117,7 @@ Conceptually it is 4 coroutines:
             * wait until it is initialized, but buffer its events
             * emit all files in directory
             * start emitting watcher events (buffered and new)
-* launchResurrectingIndex
-    * creates index and recreates it if errors occur
-        * the main purpose is to handle watcher overflow event
-            * and the library I use just throws NPE when it happens))))0)
+        * if watcher has failed, start over
 * search is executed as following
     * ask index for candidate files matching query
         * algorithm can be defined in IndexConfig
@@ -125,5 +134,5 @@ Conceptually it is 4 coroutines:
         * was also considering sharing some AtomicLongs but decided against it
     * index reads statusUpdates in priority and updates its state
     * on major updates (index started, watcher started, initial sync completed) status update is pushed to statusFlow -
-      it can be retrieved by calling index.statusFlow()
+      it can be retrieved by calling searchEngine.indexStatusFlow()
     * current status can be queried by calling index.status()

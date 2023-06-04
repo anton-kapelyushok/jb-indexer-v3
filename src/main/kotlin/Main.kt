@@ -13,14 +13,14 @@ fun main() {
     try {
         runBlocking(Dispatchers.Default + CoroutineName("main")) {
             val stdin = Channel<String>()
-            launch { readStdin(stdin) }
+            val stdinReader = launch { readStdin(stdin) }
 
             val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-//            val dir = "."
+            val dir = "."
 //            val dir = "/Users/akapelyushok/git_tree/main"
-            val dir = "/Users/akapelyushok/Projects/intellij-community"
+//            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
             val index = launchIndex(Path(dir), cfg)
             val searchEngine = launchSearchEngine(cfg, index)
