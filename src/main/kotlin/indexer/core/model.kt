@@ -33,7 +33,7 @@ interface IndexConfig {
         isActive: () -> Boolean,
     ): Sequence<FileAddress>
 
-    // determines line matches query
+    // determines if line matches query
     fun matches(line: String, query: String): Boolean
 }
 

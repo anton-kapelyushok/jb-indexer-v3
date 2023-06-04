@@ -22,7 +22,7 @@ fun main() {
 //        val dir = "/Users/akapelyushok/git_tree/main"
             val dir = "/Users/akapelyushok/Projects/intellij-community"
 
-            val index = launchResurrectingIndex(this, Path(dir), cfg)
+            val index = launchIndex(this, Path(dir), cfg)
             val searchEngine = launchSearchEngine(this, cfg, index)
 
             launch(CoroutineName("displayStatus")) {
@@ -147,10 +147,7 @@ private suspend fun runCmdHandler(
 
                     if (!showInitialWarning) {
                         val currentStatus = searchEngine.indexStatus()
-                        if (currentStatus.totalFileModifications != initialStatus.totalFileModifications
-                            || currentStatus.generation != initialStatus.generation
-                            || currentStatus.isBroken
-                        ) {
+                        if (initialStatus != currentStatus) {
                             println("Directory content has changed during search, results might be incomplete or outdated")
                             println()
                         }

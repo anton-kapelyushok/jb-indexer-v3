@@ -38,7 +38,7 @@ private suspend fun handleUpdated(
         val path = Path(event.path)
         try {
             if (path.fileSize() > 10_000_000L) {
-                // file to large, skip
+                // file too large, skip
                 indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
                 return@withContext
             }

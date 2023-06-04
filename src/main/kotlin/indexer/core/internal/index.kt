@@ -2,14 +2,11 @@ package indexer.core.internal
 
 import indexer.core.IndexConfig
 import indexer.core.StatusResult
-import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
-import kotlinx.coroutines.withContext
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
@@ -27,6 +24,7 @@ internal suspend fun index(
 ) = coroutineScope {
     val index = IndexState(cfg, coroutineContext, generation, statusFlow)
 
+    launch { delay(5000); error("test") }
     try {
         index.init()
         while (true) {
@@ -49,7 +47,6 @@ internal suspend fun index(
                 }
                 indexUpdateRequests.onReceive { event ->
                     if (cfg.enableLogging.get()) println("indexRequests: $event")
-
                     when (event) {
                         is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
                         is RemoveFileRequest -> index.handleRemoveFileRequest(event)
@@ -58,10 +55,10 @@ internal suspend fun index(
             }
         }
     } catch (e: Throwable) {
-        index.onException(e)
+        index.handleException(e)
     } finally {
         withContext(NonCancellable) {
-            index.teardown()
+            index.handleCopmlete()
         }
     }
 }
@@ -152,15 +149,15 @@ private class IndexState(
         statusFlow.emit(status())
     }
 
-    fun handleModificationHappened() {
+    suspend fun handleModificationHappened() {
         totalModifications++
     }
 
-    fun handleWatcherDiscoveredFileDuringInitialization() {
+    suspend fun handleWatcherDiscoveredFileDuringInitialization() {
         filesDiscoveredByWatcherDuringInitialization++
     }
 
-    fun onException(e: Throwable) {
+    suspend fun handleException(e: Throwable) {
         exception = e
     }
 
@@ -168,7 +165,7 @@ private class IndexState(
         statusFlow.emit(status())
     }
 
-    suspend fun teardown() {
+    suspend fun handleCopmlete() {
         forwardIndex.clear()
         reverseIndex.clear()
         statusFlow.emit(status())

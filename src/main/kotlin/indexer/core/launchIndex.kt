@@ -3,7 +3,10 @@ package indexer.core
 import indexer.core.internal.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.takeWhile
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 
@@ -16,13 +19,14 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
         supervisorScope {
             var generation = 1
             while (true) {
+                val index = launchIndex(this, dir, cfg, generation++, statusFlow)
                 try {
-                    val index = launchIndex(this, dir, cfg, generation++, statusFlow)
                     indexRef.set(index)
                     startedLatch.complete(Unit)
                     index.await()
                 } catch (e: Throwable) {
                     ensureActive()
+                    // ignore: exception is already handled by underlying index
                     if (cfg.enableLogging.get()) {
                         println("Index failed with $e, rebuilding index!")
                         e.printStackTrace(System.out)
@@ -47,7 +51,6 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
         override suspend fun statusFlow(): Flow<StatusResult> {
             return statusFlow
                 .takeWhile { job.isActive }
-                .onCompletion { emit(StatusResult.broken()) }
         }
     }
 }
@@ -91,7 +94,8 @@ fun launchIndex(
         }
 
         override suspend fun statusFlow(): Flow<StatusResult> {
-            return statusFlow.takeWhile { job.isActive }.onCompletion { emit(StatusResult.broken()) }
+            return statusFlow
+                .takeWhile { job.isActive }
         }
 
         override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
