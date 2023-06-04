@@ -18,11 +18,18 @@ fun main() {
         val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-//        val dir = "."
+        val dir = "."
 //        val dir = "/Users/akapelyushok/git_tree/main"
-        val dir = "/Users/akapelyushok/Projects/intellij-community"
+//        val dir = "/Users/akapelyushok/Projects/intellij-community"
 
         val index = launchRessurectingIndex(this, Path(dir), cfg)
+
+        launch {
+            index.statusFlow().collect {
+                if (cfg.enableLogging.get()) println("Status update: $it")
+            }
+        }
+
         runCmdHandler(stdin, index)
         index.cancel()
 

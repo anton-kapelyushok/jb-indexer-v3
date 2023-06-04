@@ -9,13 +9,14 @@ import java.util.concurrent.atomic.AtomicReference
 suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
     val indexRef = AtomicReference<Index>()
     val startedLatch = CompletableDeferred<Unit>()
+    val statusFlow = MutableStateFlow(StatusResult.broken())
 
     val job = parentScope.async {
         supervisorScope {
             var generation = 1
             while (true) {
                 try {
-                    val index = this.launchIndex(dir, cfg, generation++)
+                    val index = this.launchIndex(dir, cfg, generation++, statusFlow)
                     indexRef.set(index)
                     startedLatch.complete(Unit)
                     index.await()
@@ -38,6 +39,10 @@ suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
             return indexRef.get().status()
         }
 
+        override suspend fun statusFlow(): Flow<StatusResult> {
+            return statusFlow
+        }
+
         override suspend fun find(query: String): Flow<SearchResult> {
             return indexRef.get().find(query)
         }
@@ -53,11 +58,16 @@ suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
-fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0): Index {
+fun CoroutineScope.launchIndex(
+    dir: Path,
+    cfg: IndexConfig,
+    generation: Int = 0,
+    statusFlow: MutableStateFlow<StatusResult> = MutableStateFlow(StatusResult.broken()),
+): Index {
 
     val userRequests = Channel<UserRequest>()
     val searchInFileRequests = Channel<SearchInFileRequest>()
-    val indexRequests = Channel<IndexRequest>()
+    val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
 
@@ -65,10 +75,10 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
         coroutineScope {
             launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
             repeat(4) {
-                launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexRequests) }
+                launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
             }
             launch(CoroutineName("index")) {
-                index(cfg, generation, userRequests, indexRequests, statusUpdates)
+                index(cfg, generation, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
             }
             repeat(4) {
                 launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
@@ -80,7 +90,7 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
     job.invokeOnCompletion {
         userRequests.cancel(it?.let { CancellationException(it.message, it) })
         searchInFileRequests.cancel(it?.let { CancellationException(it.message, it) })
-        indexRequests.cancel(it?.let { CancellationException(it.message, it) })
+        indexUpdateRequests.cancel(it?.let { CancellationException(it.message, it) })
         statusUpdates.cancel(it?.let { CancellationException(it.message, it) })
         fileEvents.cancel(it?.let { CancellationException(it.message, it) })
     }
@@ -117,6 +127,10 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
                     }
                     .flattenMerge(concurrency = 4) // bounded by searchInFile coroutine concurrency
             } ?: flowOf()
+        }
+
+        override suspend fun statusFlow(): Flow<StatusResult> {
+            return statusFlow
         }
 
         override suspend fun enableLogging() {

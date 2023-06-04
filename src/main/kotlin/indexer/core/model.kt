@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
     suspend fun status(): StatusResult
+    suspend fun statusFlow(): Flow<StatusResult>
     suspend fun find(query: String): Flow<SearchResult>
     suspend fun enableLogging()
     suspend fun disableLogging()
@@ -45,7 +46,17 @@ data class StatusResult(
     val generation: Int,
 ) {
     companion object {
-        fun broken() = StatusResult(0, 0, null, null, 0L, 0L, true, 0)
+        fun broken() = StatusResult(
+            isBroken = true,
+
+            indexedFiles = 0,
+            knownTokens = 0,
+            watcherStartTime = null,
+            initialSyncTime = null,
+            handledFileModifications = 0L,
+            totalFileModifications = 0L,
+            generation = 0
+        )
     }
 }
 
@@ -73,14 +84,14 @@ internal object AllFilesDiscovered : StatusUpdate
 internal object WatcherDiscoveredFileDuringInitialization: StatusUpdate
 internal data class ModificationHappened(val source: FileEventSource) : StatusUpdate
 
-internal sealed interface IndexRequest
+internal sealed interface IndexUpdateRequest
 
 internal data class UpdateFileContentRequest(
     val t: Long,
     val path: String,
     val tokens: Set<String>,
     val source: FileEventSource,
-) : IndexRequest {
+) : IndexUpdateRequest {
     override fun toString(): String {
         return "UpdateFileContentRequest($path)"
     }
@@ -90,7 +101,7 @@ internal data class RemoveFileRequest(
     val t: Long,
     val path: String,
     val source: FileEventSource,
-) : IndexRequest
+) : IndexUpdateRequest
 
 internal sealed interface UserRequest
 

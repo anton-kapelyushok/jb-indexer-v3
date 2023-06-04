@@ -1,10 +1,13 @@
 package indexer.core
 
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
@@ -15,11 +18,13 @@ internal suspend fun index(
     cfg: IndexConfig,
     generation: Int,
     userRequests: ReceiveChannel<UserRequest>,
-    indexRequests: ReceiveChannel<IndexRequest>,
+    indexUpdateRequests: ReceiveChannel<IndexUpdateRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
+    statusFlow: MutableStateFlow<StatusResult>,
 ) = coroutineScope {
-    val index = IndexState(cfg, generation)
+    val index = IndexState(cfg, generation, statusFlow)
     try {
+        index.init()
         while (true) {
             select {
                 statusUpdates.onReceive { event ->
@@ -38,7 +43,7 @@ internal suspend fun index(
                         is StatusRequest -> index.handleStatusRequest(event)
                     }
                 }
-                indexRequests.onReceive { event ->
+                indexUpdateRequests.onReceive { event ->
                     if (cfg.enableLogging.get()) println("indexRequests: $event")
 
                     when (event) {
@@ -49,11 +54,13 @@ internal suspend fun index(
             }
         }
     } finally {
-        index.teardown()
+        withContext(NonCancellable) {
+            index.teardown()
+        }
     }
 }
 
-private class IndexState(val cfg: IndexConfig, val generation: Int) {
+private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFlow: MutableStateFlow<StatusResult>) {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -71,8 +78,10 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
     var totalModifications = 0L
     var handledModifications = 0L
 
-    fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
+
+    suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         updateModificationsCounts()
+
         val path = event.path
         val fa = fas.computeIfAbsent(path) { FileAddress(it) }
 
@@ -88,7 +97,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
         tokens.forEach { reverseIndex[it] = (reverseIndex[it] ?: ConcurrentHashMap.newKeySet()).apply { add(fa) } }
     }
 
-    fun handleRemoveFileRequest(event: RemoveFileRequest) {
+    suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
         updateModificationsCounts()
         val path = event.path
         val fa = fas.computeIfAbsent(path) { FileAddress(it) }
@@ -102,25 +111,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
     }
 
     suspend fun handleStatusRequest(event: StatusRequest) {
-        event.result.complete(
-            StatusResult(
-                indexedFiles = forwardIndex.size,
-                knownTokens = reverseIndex.size,
-                watcherStartTime = watcherStartedTime?.let { it - startTime },
-                initialSyncTime = syncCompletedTime?.let { it - startTime },
-                handledFileModifications = handledModifications,
-                totalFileModifications = if (allFilesDiscoveredTime == null) {
-                    maxOf(
-                        totalModifications,
-                        filesDiscoveredByWatcherDuringInitialization
-                    )
-                } else {
-                    totalModifications
-                },
-                isBroken = coroutineContext.isActive,
-                generation = generation
-            )
-        )
+        event.result.complete(status())
     }
 
     suspend fun handleFindRequest(event: FindRequest) {
@@ -137,14 +128,16 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
         result.complete(flow)
     }
 
-    fun handleWatcherStarted() {
+    suspend fun handleWatcherStarted() {
         watcherStartedTime = System.currentTimeMillis()
         println("Watcher started after ${watcherStartedTime!! - startTime} ms!")
+        statusFlow.value = status()
     }
 
-    fun handleAllFilesDiscovered() {
+    suspend fun handleAllFilesDiscovered() {
         allFilesDiscoveredTime = System.currentTimeMillis()
         println("All files discovered after ${allFilesDiscoveredTime!! - startTime} ms!")
+        statusFlow.value = status()
     }
 
     fun handleModificationHappened() {
@@ -155,16 +148,22 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
         filesDiscoveredByWatcherDuringInitialization++
     }
 
-    fun teardown() {
-        forwardIndex.clear()
-        reverseIndex.clear()
+    suspend fun init() {
+        statusFlow.value = status()
     }
 
-    private fun updateModificationsCounts() {
+    suspend fun teardown() {
+        forwardIndex.clear()
+        reverseIndex.clear()
+        statusFlow.value = status()
+    }
+
+    private suspend fun updateModificationsCounts() {
         handledModifications++
         if (allFilesDiscoveredTime != null && syncCompletedTime == null && handledModifications == totalModifications) {
             syncCompletedTime = System.currentTimeMillis()
             println("Initial sync completed after ${syncCompletedTime!! - startTime} ms!")
+            statusFlow.value = status()
         }
     }
 
@@ -174,4 +173,23 @@ private class IndexState(val cfg: IndexConfig, val generation: Int) {
         fileUpdateTimes[fa] = eventTime
         return Unit
     }
+
+    private suspend fun status() = StatusResult(
+        indexedFiles = forwardIndex.size,
+        knownTokens = reverseIndex.size,
+        watcherStartTime = watcherStartedTime?.let { it - startTime },
+        initialSyncTime = syncCompletedTime?.let { it - startTime },
+        handledFileModifications = handledModifications,
+        totalFileModifications = if (allFilesDiscoveredTime == null) {
+            maxOf(
+                totalModifications,
+                filesDiscoveredByWatcherDuringInitialization
+            )
+        } else {
+            totalModifications
+        },
+        isBroken = coroutineContext.isActive,
+        generation = generation
+    )
+
 }
