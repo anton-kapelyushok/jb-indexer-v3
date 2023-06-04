@@ -105,7 +105,7 @@ Conceptually it is 4 coroutines:
             * wait until it is initialized, but buffer its events
             * emit all files in directory
             * start emitting watcher events (buffered and new)
-* launchRessurectingIndex
+* launchResurrectingIndex
     * creates index and recreates it if errors occur
         * the main purpose is to handle watcher overflow event
             * and the library I use just throws NPE when it happens))))0)

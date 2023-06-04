@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.*
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 
-suspend fun launchRessurectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
+suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
     val indexRef = AtomicReference<Index>()
     val startedLatch = CompletableDeferred<Unit>()
     val statusFlow = MutableStateFlow(StatusResult.broken())
