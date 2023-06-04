@@ -2,38 +2,36 @@ import indexer.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.channels.trySendBlocking
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.selects.select
 import java.lang.management.ManagementFactory
-import java.util.concurrent.Executors
 import kotlin.io.path.Path
 
-fun main() {
-    try {
-        runBlocking(Dispatchers.Default + CoroutineName("main")) {
-            val stdin = Channel<String>()
-            val stdinReader = launch { readStdin(stdin) }
+suspend fun main() = try {
+    withContext(Dispatchers.Default + CoroutineName("main")) {
 
-            val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+        val stdin = startStdReaderDaemon()
+
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-            val dir = "."
+        val dir = "."
 //            val dir = "/Users/akapelyushok/git_tree/main"
 //            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
-            val index = launchIndex(Path(dir), cfg)
-            val searchEngine = launchSearchEngine(cfg, index)
-            launchStatusDisplay(searchEngine)
+        val index = launchIndex(Path(dir), cfg)
+        val searchEngine = launchSearchEngine(cfg, index)
+        launchStatusDisplay(searchEngine)
 
-            runCmdHandler(stdin, searchEngine, cfg)
+        runCmdHandler(stdin, searchEngine, cfg)
 
-            cancel()
-        }
-    } catch (e: CancellationException) {
-        // ignore
+        cancel()
     }
+} catch (e: CancellationException) {
+    // ignore
 }
+
 
 private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
     launch(CoroutineName("displayStatus")) {
@@ -82,25 +80,17 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
     }
 }
 
-private suspend fun readStdin(output: SendChannel<String>) {
-    withContext(Dispatchers.IO + CoroutineName("stdReader")) {
-        val stdinReaderExecutor =
-            Executors.newSingleThreadExecutor {
-                Executors.defaultThreadFactory().newThread(it).apply { isDaemon = true }
-            }
+fun startStdReaderDaemon(): ReceiveChannel<String> {
+    val channel = Channel<String>()
+    Thread {
+        generateSequence { readlnOrNull() }.forEach {
+            channel.trySendBlocking(it).getOrThrow()
 
-        val future = stdinReaderExecutor.submit {
-            generateSequence { readlnOrNull() }.forEach {
-                runBlocking(coroutineContext) {
-                    output.send(it)
-                }
-            }
-        }
-
-        runInterruptible {
-            future.get()
         }
     }
+        .apply { isDaemon = true }
+        .start()
+    return channel
 }
 
 private suspend fun runCmdHandler(
