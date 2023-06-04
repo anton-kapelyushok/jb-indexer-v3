@@ -59,6 +59,7 @@ internal suspend fun index(
         }
     } catch (e: Throwable) {
         index.handleException(e)
+        throw e
     } finally {
         withContext(NonCancellable) {
             index.handleComplete()
