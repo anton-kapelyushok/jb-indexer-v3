@@ -1,5 +1,6 @@
 package indexer.core.internal
 
+import indexer.core.IndexConfig
 import kotlinx.coroutines.*
 
 /**
@@ -31,4 +32,8 @@ internal suspend fun invokeOnCancellation(scope: CoroutineScope, close: suspend 
         }
     }
     closerStartedLatch.await()
+}
+
+internal fun IndexConfig.debugLog(str: String) {
+    if (enableLogging.get()) println(str)
 }

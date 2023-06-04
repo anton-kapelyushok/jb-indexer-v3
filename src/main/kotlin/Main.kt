@@ -18,9 +18,9 @@ fun main() {
             val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-            val dir = "."
-//        val dir = "/Users/akapelyushok/git_tree/main"
-//            val dir = "/Users/akapelyushok/Projects/intellij-community"
+//            val dir = "."
+//            val dir = "/Users/akapelyushok/git_tree/main"
+            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
             val index = launchIndex(Path(dir), cfg)
             val searchEngine = launchSearchEngine(cfg, index)
@@ -50,7 +50,7 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
                 is IndexStateUpdate.IndexInSync -> {
                     if (!wasInSync) {
                         wasInSync = true
-                        println("Initial sync completed after ${update.status.initialSyncTime}ms!")
+                        println("Initial sync completed after ${update.ts - update.status.lastRestartTime}ms!")
                     } else {
                         println("Index in sync again!")
                     }
@@ -61,7 +61,7 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
                 }
 
                 is IndexStateUpdate.AllFilesDiscovered ->
-                    println("All files discovered!")
+                    println("All files discovered after ${update.ts - update.status.lastRestartTime}ms!")
 
                 is IndexStateUpdate.Failed -> {
                     println("Index failed with exception ${update.reason}")
@@ -69,11 +69,11 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
                 }
 
                 is IndexStateUpdate.WatcherStarted ->
-                    println("Watcher started after ${update.status.watcherStartTime}ms!")
+                    println("Watcher started after after ${update.ts - update.status.lastRestartTime}ms!")
 
                 is IndexStateUpdate.ReinitializingBecauseWatcherFailed -> {
                     wasInSync = false
-                    println("Watcher failed with ${update.reason}")
+                    println("Watcher failed with ${update.reason} - reinitializing it")
                     update.reason.printStackTrace(System.out)
                 }
             }
@@ -156,7 +156,7 @@ private suspend fun runCmdHandler(
 
                     val initialStatus = searchEngine.indexStatus()
                     val showInitialWarning =
-                        initialStatus.initialSyncTime == null
+                        !initialStatus.allFileDiscovered
                                 || initialStatus.handledFileEvents != initialStatus.totalFileEvents
                                 || initialStatus.isBroken
                     if (showInitialWarning) {

@@ -32,7 +32,7 @@ internal suspend fun index(
         while (true) {
             select {
                 statusUpdates.onReceive { event ->
-                    if (cfg.enableLogging.get()) println("statusUpdates: $event")
+                    cfg.debugLog("statusUpdates: $event")
                     when (event) {
                         WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
                         WatcherStarted -> index.handleWatcherStarted()
@@ -42,14 +42,14 @@ internal suspend fun index(
                     }
                 }
                 userRequests.onReceive { event ->
-                    if (cfg.enableLogging.get()) println("userRequests: $event")
+                    cfg.debugLog("userRequests: $event")
                     when (event) {
                         is FindRequest -> index.handleFindRequest(event)
                         is StatusRequest -> index.handleStatusRequest(event)
                     }
                 }
                 indexUpdateRequests.onReceive { event ->
-                    if (cfg.enableLogging.get()) println("indexRequests: $event")
+                    cfg.debugLog("indexRequests: $event")
                     when (event) {
                         is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
                         is RemoveFileRequest -> index.handleRemoveFileRequest(event)
@@ -74,9 +74,10 @@ internal class IndexState(
 ) {
     private var handledEventsCount = 0L
     private val startTime = System.currentTimeMillis()
-    private var watcherStartedTime: Long? = null
-    private var syncCompletedTime: Long? = null
-    private var allFilesDiscoveredTime: Long? = null
+    private var lastRestartTime = System.currentTimeMillis()
+    private var watcherStarted: Boolean = false
+    private var allFilesDiscovered: Boolean = false
+    private var syncCompleted: Boolean = false
 
     private val tokenInterner: Interner<String> = Interners.newWeakInterner()
     private val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
@@ -138,23 +139,25 @@ internal class IndexState(
     }
 
     suspend fun handleWatcherStarted() {
-        watcherStartedTime = System.currentTimeMillis()
-        if (cfg.enableLogging.get()) println("Watcher started after ${watcherStartedTime!! - startTime} ms!")
-        emitStatusUpdate(IndexStateUpdate.WatcherStarted(status()))
+        val watcherStartedTime = System.currentTimeMillis()
+        cfg.debugLog("Watcher started after ${watcherStartedTime - startTime} ms!")
+        watcherStarted = true
+        emitStatusUpdate(IndexStateUpdate.WatcherStarted(watcherStartedTime, status()))
     }
 
     suspend fun handleAllFilesDiscovered() {
-        allFilesDiscoveredTime = System.currentTimeMillis()
-        if (cfg.enableLogging.get()) println("All files discovered after ${allFilesDiscoveredTime!! - startTime} ms!")
-        emitStatusUpdate(IndexStateUpdate.AllFilesDiscovered(status()))
+        val allFilesDiscoveredTime = System.currentTimeMillis()
+        allFilesDiscovered = true
+        cfg.debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
+        emitStatusUpdate(IndexStateUpdate.AllFilesDiscovered(allFilesDiscoveredTime, status()))
     }
 
     suspend fun handleFileUpdated() {
-        val wasInSync = allFilesDiscoveredTime != null && handledFileEvents == totalFileEvents
+        val wasInSync = allFilesDiscovered && handledFileEvents == totalFileEvents
         handledEventsCount++
         totalFileEvents++
         if (wasInSync) {
-            emitStatusUpdate(IndexStateUpdate.IndexOutOfSync(status()))
+            emitStatusUpdate(IndexStateUpdate.IndexOutOfSync(System.currentTimeMillis(), status()))
         }
     }
 
@@ -174,9 +177,9 @@ internal class IndexState(
 
     suspend fun handleWatcherFailed(reason: Throwable) {
         handledEventsCount++
-        watcherStartedTime = null
-        syncCompletedTime = null
-        allFilesDiscoveredTime = null
+        watcherStarted = false
+        allFilesDiscovered = false
+        lastRestartTime = System.currentTimeMillis()
         fileUpdateTimes.clear()
         forwardIndex.clear()
         reverseIndex.clear()
@@ -184,17 +187,18 @@ internal class IndexState(
         totalFileEvents = 0L
         handledFileEvents = 0L
 
-        emitStatusUpdate(IndexStateUpdate.ReinitializingBecauseWatcherFailed(reason))
+        emitStatusUpdate(IndexStateUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), reason))
     }
 
     private suspend fun handleFileEventHandled() {
         handledFileEvents++
-        if (allFilesDiscoveredTime != null && handledFileEvents == totalFileEvents) {
-            if (syncCompletedTime == null) {
-                syncCompletedTime = System.currentTimeMillis()
-                if (cfg.enableLogging.get()) println("Initial sync completed after ${syncCompletedTime!! - startTime} ms!")
+        if (allFilesDiscovered && handledFileEvents == totalFileEvents) {
+            if (!syncCompleted) {
+                val syncCompletedTime = System.currentTimeMillis()
+                syncCompleted = true
+                cfg.debugLog("Initial sync completed after ${syncCompletedTime - startTime} ms!")
             }
-            emitStatusUpdate(IndexStateUpdate.IndexInSync(status()))
+            emitStatusUpdate(IndexStateUpdate.IndexInSync(System.currentTimeMillis(), status()))
         }
     }
 
@@ -209,17 +213,16 @@ internal class IndexState(
         handledEventsCount = 0L,
         indexedFiles = forwardIndex.size,
         knownTokens = reverseIndex.size,
-        watcherStartTime = watcherStartedTime?.let { it - startTime },
-        initialSyncTime = syncCompletedTime?.let { it - startTime },
+        watcherStarted = watcherStarted,
+        allFileDiscovered = allFilesDiscovered,
         handledFileEvents = handledFileEvents,
-        totalFileEvents = if (allFilesDiscoveredTime == null) {
-            maxOf(
-                totalFileEvents,
-                filesDiscoveredByWatcherDuringInitialization
-            )
+        totalFileEvents = if (!allFilesDiscovered) {
+            maxOf(totalFileEvents, filesDiscoveredByWatcherDuringInitialization)
         } else {
             totalFileEvents
         },
+        startTime = startTime,
+        lastRestartTime = lastRestartTime,
         isBroken = !ctx.isActive,
     )
 }

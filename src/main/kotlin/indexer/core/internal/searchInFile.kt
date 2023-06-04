@@ -22,7 +22,7 @@ internal suspend fun searchInFile(
                 .filter { (_, line) -> cfg.matches(line, request.query) }
                 .map { (idx, line) -> IndexSearchResult(request.fa.path, idx + 1, line) }
         } catch (e: IOException) {
-            if (cfg.enableLogging.get()) println("Failed to read ${request.fa.path}: $e")
+            cfg.debugLog("Failed to read ${request.fa.path}: $e")
             listOf()
         }
 

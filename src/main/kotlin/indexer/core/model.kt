@@ -47,14 +47,18 @@ data class IndexSearchResult(val path: String, val lineNo: Int, val line: String
 data class IndexStatus(
     val handledEventsCount: Long,
 
+    var startTime: Long,
+    var lastRestartTime: Long,
+
     val indexedFiles: Int,
     val knownTokens: Int,
-    val watcherStartTime: Long?,
-    val initialSyncTime: Long?,
+    val watcherStarted: Boolean,
     val handledFileEvents: Long,
     val totalFileEvents: Long,
     val isBroken: Boolean,
+    val allFileDiscovered: Boolean,
 ) {
+
     companion object {
         fun broken() = IndexStatus(
             handledEventsCount = -1L,
@@ -62,25 +66,29 @@ data class IndexStatus(
 
             indexedFiles = 0,
             knownTokens = 0,
-            watcherStartTime = null,
-            initialSyncTime = null,
+            watcherStarted = false,
             handledFileEvents = 0L,
             totalFileEvents = 0L,
+            startTime = -1L,
+            lastRestartTime = -1L,
+            allFileDiscovered = false,
         )
     }
 }
 
 sealed interface IndexStateUpdate {
-    object Initial : IndexStateUpdate
-    object Initializing : IndexStateUpdate
+    val ts: Long
 
-    data class WatcherStarted(val status: IndexStatus) : IndexStateUpdate
-    data class AllFilesDiscovered(val status: IndexStatus) : IndexStateUpdate
+    data class Initial(override val ts: Long) : IndexStateUpdate
+    data class Initializing(override val ts: Long) : IndexStateUpdate
 
-    data class IndexInSync(val status: IndexStatus) : IndexStateUpdate
-    data class IndexOutOfSync(val status: IndexStatus) : IndexStateUpdate
+    data class WatcherStarted(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
+    data class AllFilesDiscovered(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
 
-    data class ReinitializingBecauseWatcherFailed(val reason: Throwable) : IndexStateUpdate
+    data class IndexInSync(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
+    data class IndexOutOfSync(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
 
-    data class Failed(val reason: Throwable) : IndexStateUpdate
+    data class ReinitializingBecauseWatcherFailed(override val ts: Long, val reason: Throwable) : IndexStateUpdate
+
+    data class Failed(override val ts: Long, val reason: Throwable) : IndexStateUpdate
 }

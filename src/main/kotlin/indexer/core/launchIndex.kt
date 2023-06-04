@@ -19,7 +19,7 @@ fun CoroutineScope.launchIndex(
         replay = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-    statusFlow.tryEmit(IndexStateUpdate.Initializing)
+    statusFlow.tryEmit(IndexStateUpdate.Initializing(System.currentTimeMillis()))
 
     val deferred = async {
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
@@ -34,6 +34,7 @@ fun CoroutineScope.launchIndex(
     deferred.invokeOnCompletion {
         statusFlow.tryEmit(
             IndexStateUpdate.Failed(
+                System.currentTimeMillis(),
                 it
                     ?: IllegalStateException("Index terminated without exception?")
             )

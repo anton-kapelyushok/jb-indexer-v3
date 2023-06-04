@@ -17,7 +17,7 @@ internal suspend fun indexer(
     indexUpdateRequests: SendChannel<IndexUpdateRequest>
 ) {
     for (event in watchEvents) {
-        if (cfg.enableLogging.get()) println("indexer: $event")
+        cfg.debugLog("indexer: $event")
         when (event.type) {
             CREATE, MODIFY -> handleUpdated(cfg, event, indexUpdateRequests)
             DELETE -> handleRemoved(event, indexUpdateRequests)
@@ -50,7 +50,7 @@ private suspend fun handleUpdated(
             indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, tokens, event.source))
         } catch (e: IOException) {
             indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, emptySet(), event.source))
-            if (cfg.enableLogging.get()) println("Failed to read ${event.fileAddress}: $e")
+            cfg.debugLog("Failed to read ${event.fileAddress}: $e")
         }
     }
 }
