@@ -11,29 +11,31 @@ import java.util.concurrent.Executors
 import kotlin.io.path.Path
 
 fun main() {
-    runBlocking(Dispatchers.Default) {
-        val stdin = Channel<String>()
-        val stdinReader = launch { readStdin(stdin) }
+    try {
+        runBlocking(Dispatchers.Default) {
+            val stdin = Channel<String>()
+            launch { readStdin(stdin) }
 
-        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+            val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-        val dir = "."
+            val dir = "."
 //        val dir = "/Users/akapelyushok/git_tree/main"
 //        val dir = "/Users/akapelyushok/Projects/intellij-community"
 
-        val index = launchResurrectingIndex(this, Path(dir), cfg)
+            val index = launchResurrectingIndex(this, Path(dir), cfg)
 
-        launch {
-            index.statusFlow().collect {
-                if (cfg.enableLogging.get()) println("Status update: $it")
+            launch {
+                index.statusFlow().collect {
+                    if (cfg.enableLogging.get()) println("Status update: $it")
+                }
             }
+
+            runCmdHandler(stdin, index)
+            cancel()
         }
-
-        runCmdHandler(stdin, index)
-        index.cancel()
-
-        stdinReader.cancel()
+    } catch (e: CancellationException) {
+        // ignore
     }
 }
 

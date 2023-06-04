@@ -16,14 +16,12 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
             var generation = 1
             while (true) {
                 try {
-                    val index = this.launchIndex(dir, cfg, generation++, statusFlow)
+                    val index = launchIndex(this, dir, cfg, generation++, statusFlow)
                     indexRef.set(index)
                     startedLatch.complete(Unit)
                     index.await()
                 } catch (e: Throwable) {
-                    if (e is CancellationException) {
-                        this.ensureActive()
-                    }
+                    ensureActive()
                     println("Index failed with $e, rebuilding index!")
                     if (cfg.enableLogging.get()) e.printStackTrace(System.out)
                     println()
@@ -57,21 +55,21 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
     }
 }
 
-@OptIn(ExperimentalCoroutinesApi::class)
-fun CoroutineScope.launchIndex(
+@OptIn(ExperimentalCoroutinesApi::class, InternalCoroutinesApi::class)
+fun launchIndex(
+    scope: CoroutineScope,
     dir: Path,
     cfg: IndexConfig,
     generation: Int = 0,
     statusFlow: MutableStateFlow<StatusResult> = MutableStateFlow(StatusResult.broken()),
 ): Index {
-
     val userRequests = Channel<UserRequest>()
     val searchInFileRequests = Channel<SearchInFileRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
 
-    val job = async {
+    val job = scope.async {
         coroutineScope {
             launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
             repeat(4) {
