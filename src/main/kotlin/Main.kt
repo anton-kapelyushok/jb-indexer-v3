@@ -1,5 +1,6 @@
-import indexer.core.Index
+import indexer.core.SearchEngine
 import indexer.core.launchResurrectingIndex
+import indexer.core.launchSearchEngine
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -19,11 +20,12 @@ fun main() {
             val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-            val dir = "."
+//            val dir = "."
 //        val dir = "/Users/akapelyushok/git_tree/main"
-//        val dir = "/Users/akapelyushok/Projects/intellij-community"
+        val dir = "/Users/akapelyushok/Projects/intellij-community"
 
             val index = launchResurrectingIndex(this, Path(dir), cfg)
+            val searchEngine = launchSearchEngine(this, index)
 
             launch {
                 index.statusFlow().collect {
@@ -31,7 +33,7 @@ fun main() {
                 }
             }
 
-            runCmdHandler(stdin, index)
+            runCmdHandler(stdin, searchEngine)
             cancel()
         }
     } catch (e: CancellationException) {
@@ -62,7 +64,7 @@ private suspend fun readStdin(output: SendChannel<String>) {
 
 private suspend fun runCmdHandler(
     input: ReceiveChannel<String>,
-    index: Index,
+    searchEngine: SearchEngine,
 ) {
     val helpMessage = "Available commands: find stop enable-logging status gc memory error help"
     println(helpMessage)
@@ -80,11 +82,11 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "enable-logging" -> {
-                index.enableLogging()
+                searchEngine.enableLogging()
             }
 
             prompt == "status" -> {
-                println(index.status())
+                println(searchEngine.indexStatus())
             }
 
             prompt == "gc" -> {
@@ -99,7 +101,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "" -> {
-                index.disableLogging()
+                searchEngine.disableLogging()
             }
 
             prompt == "error" -> {
@@ -110,7 +112,7 @@ private suspend fun runCmdHandler(
                 val query = prompt.substring("find ".length)
                 val job = launch {
 
-                    val initialStatus = index.status()
+                    val initialStatus = searchEngine.indexStatus()
                     val showInitialWarning =
                         initialStatus.initialSyncTime == null
                                 || initialStatus.handledFileModifications != initialStatus.totalFileModifications
@@ -120,7 +122,7 @@ private suspend fun runCmdHandler(
                         println()
                     }
 
-                    index
+                    searchEngine
                         .find(query)
                         .take(20)
                         .collect { (path, lineNo, line) ->
@@ -130,7 +132,7 @@ private suspend fun runCmdHandler(
                         }
 
                     if (!showInitialWarning) {
-                        val currentStatus = index.status()
+                        val currentStatus = searchEngine.indexStatus()
                         if (currentStatus.totalFileModifications != initialStatus.totalFileModifications
                             || currentStatus.generation != initialStatus.generation
                             || currentStatus.isBroken

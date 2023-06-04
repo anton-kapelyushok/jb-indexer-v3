@@ -6,8 +6,17 @@ import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
+    suspend fun findFileCandidates(query: String): Flow<FileAddress>
     suspend fun status(): StatusResult
     suspend fun statusFlow(): Flow<StatusResult>
+    suspend fun enableLogging()
+    suspend fun disableLogging()
+    fun config(): IndexConfig
+}
+
+interface SearchEngine : Deferred<Any?> {
+    suspend fun indexStatus(): StatusResult
+    suspend fun indexStatusFlow(): Flow<StatusResult>
     suspend fun find(query: String): Flow<SearchResult>
     suspend fun enableLogging()
     suspend fun disableLogging()

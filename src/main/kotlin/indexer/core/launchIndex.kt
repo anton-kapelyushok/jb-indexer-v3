@@ -2,7 +2,9 @@ package indexer.core
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 
@@ -33,16 +35,16 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
     startedLatch.await()
 
     return object : Index, Deferred<Any?> by job {
+        override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
+            return indexRef.get().findFileCandidates(query)
+        }
+
         override suspend fun status(): StatusResult {
             return indexRef.get().status()
         }
 
         override suspend fun statusFlow(): Flow<StatusResult> {
             return statusFlow
-        }
-
-        override suspend fun find(query: String): Flow<SearchResult> {
-            return indexRef.get().find(query)
         }
 
         override suspend fun enableLogging() {
@@ -52,10 +54,13 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
         override suspend fun disableLogging() {
             return indexRef.get().disableLogging()
         }
+
+        override fun config(): IndexConfig {
+            return cfg
+        }
     }
 }
 
-@OptIn(ExperimentalCoroutinesApi::class, InternalCoroutinesApi::class)
 fun launchIndex(
     scope: CoroutineScope,
     dir: Path,
@@ -64,30 +69,22 @@ fun launchIndex(
     statusFlow: MutableStateFlow<StatusResult> = MutableStateFlow(StatusResult.broken()),
 ): Index {
     val userRequests = Channel<UserRequest>()
-    val searchInFileRequests = Channel<SearchInFileRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
 
     val job = scope.async {
-        coroutineScope {
-            launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
-            repeat(4) {
-                launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
-            }
-            launch(CoroutineName("index")) {
-                index(cfg, generation, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
-            }
-            repeat(4) {
-                launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
-            }
+        launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
+        repeat(4) {
+            launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
         }
-        null // wtf
+        launch(CoroutineName("index")) {
+            index(cfg, generation, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
+        }
     }
 
     job.invokeOnCompletion {
         userRequests.cancel(it?.let { CancellationException(it.message, it) })
-        searchInFileRequests.cancel(it?.let { CancellationException(it.message, it) })
         indexUpdateRequests.cancel(it?.let { CancellationException(it.message, it) })
         statusUpdates.cancel(it?.let { CancellationException(it.message, it) })
         fileEvents.cancel(it?.let { CancellationException(it.message, it) })
@@ -102,31 +99,6 @@ fun launchIndex(
             } ?: StatusResult.broken()
         }
 
-        override suspend fun find(query: String): Flow<SearchResult> {
-            return withIndexContext {
-                val result = CompletableDeferred<Flow<FileAddress>>()
-                val request = FindRequest(
-                    query = query,
-                    result = result,
-                )
-                userRequests.send(request)
-                val flow = result.await()
-                flow
-                    .buffer(Int.MAX_VALUE)
-                    .map { fa ->
-                        flow {
-                            val searchResults = withIndexContext {
-                                val flowFuture = CompletableDeferred<List<SearchResult>>()
-                                searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
-                                flowFuture.await()
-                            } ?: listOf()
-                            emitAll(searchResults.asFlow())
-                        }
-                    }
-                    .flattenMerge(concurrency = 4) // bounded by searchInFile coroutine concurrency
-            } ?: flowOf()
-        }
-
         override suspend fun statusFlow(): Flow<StatusResult> {
             return statusFlow
         }
@@ -137,6 +109,22 @@ fun launchIndex(
 
         override suspend fun disableLogging() {
             cfg.enableLogging.set(false)
+        }
+
+        override fun config(): IndexConfig {
+            return cfg
+        }
+
+        override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
+            return withIndexContext {
+                val result = CompletableDeferred<Flow<FileAddress>>()
+                val request = FindRequest(
+                    query = query,
+                    result = result,
+                )
+                userRequests.send(request)
+                result.await()
+            } ?: flowOf()
         }
 
         // future.await() may get stuck if index gets canceled while message is inflight
