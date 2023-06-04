@@ -1,7 +1,7 @@
 package indexer.core.internal
 
 import indexer.core.IndexSearchResult
-import indexer.core.IndexStatus
+import indexer.core.IndexState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 
@@ -37,7 +37,11 @@ internal data class UpdateFileContentRequest(
     val fileAddress: FileAddress,
     val tokens: Set<String>,
     val source: FileEventSource,
-) : IndexUpdateRequest
+) : IndexUpdateRequest {
+    override fun toString(): String {
+        return "UpdateFileContentRequest(t=$t, tokens=${tokens.size}, fileAddress=$fileAddress, source=$source)"
+    }
+}
 
 internal data class RemoveFileRequest(
     val t: Long,
@@ -53,7 +57,7 @@ internal data class FindRequest(
 ) : UserRequest
 
 internal data class StatusRequest(
-    val result: CompletableDeferred<IndexStatus>
+    val result: CompletableDeferred<IndexState>
 ) : UserRequest
 
 internal data class SearchInFileRequest(

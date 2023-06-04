@@ -15,11 +15,11 @@ fun CoroutineScope.launchIndex(
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
-    val statusFlow = MutableSharedFlow<IndexStateUpdate>(
+    val statusFlow = MutableSharedFlow<IndexStatusUpdate>(
         replay = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-    statusFlow.tryEmit(IndexStateUpdate.Initializing(System.currentTimeMillis()))
+    statusFlow.tryEmit(IndexStatusUpdate.Initializing(System.currentTimeMillis()))
 
     val deferred = async(CoroutineName("launchIndex")) {
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
@@ -33,7 +33,7 @@ fun CoroutineScope.launchIndex(
 
     deferred.invokeOnCompletion {
         statusFlow.tryEmit(
-            IndexStateUpdate.Failed(
+            IndexStatusUpdate.Failed(
                 System.currentTimeMillis(),
                 it
                     ?: IllegalStateException("Index terminated without exception?")
@@ -42,19 +42,19 @@ fun CoroutineScope.launchIndex(
     }
 
     return object : Index, Deferred<Any?> by deferred {
-        override suspend fun status(): IndexStatus {
+        override suspend fun state(): IndexState {
             return withIndexContext {
-                val future = CompletableDeferred<IndexStatus>()
+                val future = CompletableDeferred<IndexState>()
                 userRequests.send(StatusRequest(future))
                 future.await()
-            } ?: IndexStatus.broken()
+            } ?: IndexState.broken()
         }
 
-        override suspend fun statusFlow(): Flow<IndexStateUpdate> {
+        override suspend fun statusFlow(): Flow<IndexStatusUpdate> {
             return flow {
                 statusFlow
                     .onEach { emit(it) }
-                    .takeWhile { it !is IndexStateUpdate.Failed }
+                    .takeWhile { it !is IndexStatusUpdate.Failed }
                     .collect()
             }
         }

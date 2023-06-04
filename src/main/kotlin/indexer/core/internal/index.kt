@@ -3,8 +3,8 @@ package indexer.core.internal
 import com.google.common.collect.Interner
 import com.google.common.collect.Interners
 import indexer.core.IndexConfig
-import indexer.core.IndexStateUpdate
-import indexer.core.IndexStatus
+import indexer.core.IndexStatusUpdate
+import indexer.core.IndexState
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -22,11 +22,11 @@ internal suspend fun index(
     userRequests: ReceiveChannel<UserRequest>,
     indexUpdateRequests: ReceiveChannel<IndexUpdateRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
-    statusFlow: MutableSharedFlow<IndexStateUpdate>,
+    indexStatusUpdate: MutableSharedFlow<IndexStatusUpdate>,
 ) = coroutineScope {
 
-    val emitStatusUpdate: suspend (IndexStateUpdate) -> Unit = { status -> statusFlow.emit(status) }
-    val index = IndexState(cfg, coroutineContext, emitStatusUpdate)
+    val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit = { status -> indexStatusUpdate.emit(status) }
+    val index = IndexStateHolder(cfg, coroutineContext, emitStatusUpdate)
 
     try {
         while (true) {
@@ -68,10 +68,10 @@ internal suspend fun index(
 }
 
 @Suppress("RedundantSuspendModifier") // they are here for consistency reasons
-internal class IndexState(
+internal class IndexStateHolder(
     private val cfg: IndexConfig,
     private val ctx: CoroutineContext,
-    private val emitStatusUpdate: suspend (IndexStateUpdate) -> Unit,
+    private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
     private var handledEventsCount = 0L
     private val startTime = System.currentTimeMillis()
@@ -143,14 +143,14 @@ internal class IndexState(
         val watcherStartedTime = System.currentTimeMillis()
         cfg.debugLog("Watcher started after ${watcherStartedTime - startTime} ms!")
         watcherStarted = true
-        emitStatusUpdate(IndexStateUpdate.WatcherStarted(watcherStartedTime, status()))
+        emitStatusUpdate(IndexStatusUpdate.WatcherStarted(watcherStartedTime, status()))
     }
 
     suspend fun handleAllFilesDiscovered() {
         val allFilesDiscoveredTime = System.currentTimeMillis()
         allFilesDiscovered = true
         cfg.debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
-        emitStatusUpdate(IndexStateUpdate.AllFilesDiscovered(allFilesDiscoveredTime, status()))
+        emitStatusUpdate(IndexStatusUpdate.AllFilesDiscovered(allFilesDiscoveredTime, status()))
     }
 
     suspend fun handleFileUpdated() {
@@ -158,7 +158,7 @@ internal class IndexState(
         handledEventsCount++
         totalFileEvents++
         if (wasInSync) {
-            emitStatusUpdate(IndexStateUpdate.IndexOutOfSync(System.currentTimeMillis(), status()))
+            emitStatusUpdate(IndexStatusUpdate.IndexOutOfSync(System.currentTimeMillis(), status()))
         }
     }
 
@@ -188,7 +188,7 @@ internal class IndexState(
         totalFileEvents = 0L
         handledFileEvents = 0L
 
-        emitStatusUpdate(IndexStateUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), reason))
+        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), reason))
     }
 
     private suspend fun handleFileEventHandled() {
@@ -199,7 +199,7 @@ internal class IndexState(
                 syncCompleted = true
                 cfg.debugLog("Initial sync completed after ${syncCompletedTime - startTime} ms!")
             }
-            emitStatusUpdate(IndexStateUpdate.IndexInSync(System.currentTimeMillis(), status()))
+            emitStatusUpdate(IndexStatusUpdate.IndexInSync(System.currentTimeMillis(), status()))
         }
     }
 
@@ -210,8 +210,8 @@ internal class IndexState(
         return Unit
     }
 
-    private fun status() = IndexStatus(
-        handledEventsCount = 0L,
+    private fun status() = IndexState(
+        eventsCount = 0L,
         indexedFiles = forwardIndex.size,
         knownTokens = reverseIndex.size,
         watcherStarted = watcherStarted,

@@ -38,14 +38,14 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
         var wasInSync = false
         searchEngine.indexStatusUpdates().collect { update ->
             when (update) {
-                is IndexStateUpdate.Initial -> {
+                is IndexStatusUpdate.Initial -> {
                     println("Index start!")
                 }
 
-                is IndexStateUpdate.Initializing ->
+                is IndexStatusUpdate.Initializing ->
                     println("Initializing index!")
 
-                is IndexStateUpdate.IndexInSync -> {
+                is IndexStatusUpdate.IndexInSync -> {
                     if (!wasInSync) {
                         wasInSync = true
                         println("Initial sync completed after ${update.ts - update.status.lastRestartTime}ms!")
@@ -54,22 +54,22 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
                     }
                 }
 
-                is IndexStateUpdate.IndexOutOfSync -> {
+                is IndexStatusUpdate.IndexOutOfSync -> {
                     println("Index out of sync!")
                 }
 
-                is IndexStateUpdate.AllFilesDiscovered ->
+                is IndexStatusUpdate.AllFilesDiscovered ->
                     println("All files discovered after ${update.ts - update.status.lastRestartTime}ms!")
 
-                is IndexStateUpdate.Failed -> {
+                is IndexStatusUpdate.Failed -> {
                     println("Index failed with exception ${update.reason}")
                     update.reason.printStackTrace(System.out)
                 }
 
-                is IndexStateUpdate.WatcherStarted ->
+                is IndexStatusUpdate.WatcherStarted ->
                     println("Watcher started after after ${update.ts - update.status.lastRestartTime}ms!")
 
-                is IndexStateUpdate.ReinitializingBecauseWatcherFailed -> {
+                is IndexStatusUpdate.ReinitializingBecauseWatcherFailed -> {
                     wasInSync = false
                     println("Watcher failed with ${update.reason} - reinitializing it")
                     update.reason.printStackTrace(System.out)
@@ -118,7 +118,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "status" -> {
-                println(searchEngine.indexStatus())
+                println(searchEngine.indexState())
             }
 
             prompt == "gc" -> {
@@ -144,7 +144,7 @@ private suspend fun runCmdHandler(
                 val query = prompt.substring("find ".length)
                 val job = launch {
 
-                    val initialStatus = searchEngine.indexStatus()
+                    val initialStatus = searchEngine.indexState()
                     val showInitialWarning =
                         !initialStatus.allFileDiscovered
                                 || initialStatus.handledFileEvents != initialStatus.totalFileEvents
@@ -164,7 +164,7 @@ private suspend fun runCmdHandler(
                         }
 
                     if (!showInitialWarning) {
-                        val currentStatus = searchEngine.indexStatus()
+                        val currentStatus = searchEngine.indexState()
                         if (initialStatus != currentStatus) {
                             println("Directory content has changed during search, results might be incomplete or outdated")
                             println()

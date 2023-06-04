@@ -8,13 +8,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
     suspend fun findFileCandidates(query: String): Flow<FileAddress>
-    suspend fun status(): IndexStatus
-    suspend fun statusFlow(): Flow<IndexStateUpdate>
+    suspend fun state(): IndexState
+    suspend fun statusFlow(): Flow<IndexStatusUpdate>
 }
 
 interface SearchEngine : Deferred<Any?> {
-    suspend fun indexStatus(): IndexStatus
-    suspend fun indexStatusUpdates(): Flow<IndexStateUpdate>
+    suspend fun indexState(): IndexState
+    suspend fun indexStatusUpdates(): Flow<IndexStatusUpdate>
     suspend fun find(query: String): Flow<IndexSearchResult>
     suspend fun cancelAll(cause: CancellationException? = null)
 }
@@ -46,8 +46,8 @@ interface IndexConfig {
 
 data class IndexSearchResult(val path: String, val lineNo: Int, val line: String)
 
-data class IndexStatus(
-    val handledEventsCount: Long,
+data class IndexState(
+    val eventsCount: Long,
 
     var startTime: Long,
     var lastRestartTime: Long,
@@ -62,8 +62,8 @@ data class IndexStatus(
 ) {
 
     companion object {
-        fun broken() = IndexStatus(
-            handledEventsCount = -1L,
+        fun broken() = IndexState(
+            eventsCount = -1L,
             isBroken = true,
 
             indexedFiles = 0,
@@ -78,19 +78,19 @@ data class IndexStatus(
     }
 }
 
-sealed interface IndexStateUpdate {
+sealed interface IndexStatusUpdate {
     val ts: Long
 
-    data class Initial(override val ts: Long) : IndexStateUpdate
-    data class Initializing(override val ts: Long) : IndexStateUpdate
+    data class Initial(override val ts: Long) : IndexStatusUpdate
+    data class Initializing(override val ts: Long) : IndexStatusUpdate
 
-    data class WatcherStarted(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
-    data class AllFilesDiscovered(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
+    data class WatcherStarted(override val ts: Long, val status: IndexState) : IndexStatusUpdate
+    data class AllFilesDiscovered(override val ts: Long, val status: IndexState) : IndexStatusUpdate
 
-    data class IndexInSync(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
-    data class IndexOutOfSync(override val ts: Long, val status: IndexStatus) : IndexStateUpdate
+    data class IndexInSync(override val ts: Long, val status: IndexState) : IndexStatusUpdate
+    data class IndexOutOfSync(override val ts: Long, val status: IndexState) : IndexStatusUpdate
 
-    data class ReinitializingBecauseWatcherFailed(override val ts: Long, val reason: Throwable) : IndexStateUpdate
+    data class ReinitializingBecauseWatcherFailed(override val ts: Long, val reason: Throwable) : IndexStatusUpdate
 
-    data class Failed(override val ts: Long, val reason: Throwable) : IndexStateUpdate
+    data class Failed(override val ts: Long, val reason: Throwable) : IndexStatusUpdate
 }

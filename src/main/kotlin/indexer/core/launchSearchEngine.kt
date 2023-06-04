@@ -22,11 +22,11 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
     }
 
     return object : SearchEngine, Deferred<Any?> by deferred {
-        override suspend fun indexStatus(): IndexStatus {
-            return index.status()
+        override suspend fun indexState(): IndexState {
+            return index.state()
         }
 
-        override suspend fun indexStatusUpdates(): Flow<IndexStateUpdate> {
+        override suspend fun indexStatusUpdates(): Flow<IndexStatusUpdate> {
             return index.statusFlow()
         }
 

@@ -43,8 +43,15 @@ val index = launchIndex(Path("."), cfg)
 // launch searchEngine in current scope
 val searchEngine = launchSearchEngine(cfg, index)
 
+// show progress
+searchEngine.indexState().let {
+    val percent = if (it.totalFileEvents == 0L) 0.0
+    else 100.0 * it.handledFileEvents / it.totalFileEvents
+    println("Indexing progress: $percent%")
+}
+
 // wait until it is in sync
-searchEngine.indexStatusUpdates().first { it is IndexStateUpdate.IndexInSync }
+searchEngine.indexStatusUpdates().first { it is IndexStatusUpdate.IndexInSync }
 
 // execute some query
 searchEngine.find("some query").collect { println(it) }
