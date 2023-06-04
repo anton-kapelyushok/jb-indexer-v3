@@ -80,7 +80,6 @@ internal suspend fun watch(
         )
         invokeOnCancellation(this) { watcher.close() }
         runInterruptible {
-            println("Starting watcher!")
             val f = watcher.watchAsync()
             runBlocking(coroutineContext) {
                 statusUpdates.send(WatcherStarted)

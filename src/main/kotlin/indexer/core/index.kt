@@ -3,13 +3,14 @@ package indexer.core
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.withContext
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
 data class FileAddress(val path: String)
@@ -20,9 +21,10 @@ internal suspend fun index(
     userRequests: ReceiveChannel<UserRequest>,
     indexUpdateRequests: ReceiveChannel<IndexUpdateRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
-    statusFlow: MutableStateFlow<StatusResult>,
+    statusFlow: MutableSharedFlow<StatusResult>,
 ) = coroutineScope {
-    val index = IndexState(cfg, generation, statusFlow)
+    val index = IndexState(cfg, coroutineContext, generation, statusFlow)
+
     try {
         index.init()
         while (true) {
@@ -53,6 +55,8 @@ internal suspend fun index(
                 }
             }
         }
+    } catch (e: Throwable) {
+        index.onException(e)
     } finally {
         withContext(NonCancellable) {
             index.teardown()
@@ -60,7 +64,12 @@ internal suspend fun index(
     }
 }
 
-private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFlow: MutableStateFlow<StatusResult>) {
+private class IndexState(
+    val cfg: IndexConfig,
+    val ctx: CoroutineContext,
+    val generation: Int,
+    val statusFlow: MutableSharedFlow<StatusResult>
+) {
     val startTime = System.currentTimeMillis()
     var watcherStartedTime: Long? = null
     var syncCompletedTime: Long? = null
@@ -78,6 +87,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
     var totalModifications = 0L
     var handledModifications = 0L
 
+    var exception: Throwable? = null
 
     suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         updateModificationsCounts()
@@ -130,14 +140,14 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
 
     suspend fun handleWatcherStarted() {
         watcherStartedTime = System.currentTimeMillis()
-        println("Watcher started after ${watcherStartedTime!! - startTime} ms!")
-        statusFlow.value = status()
+        if (cfg.enableLogging.get()) println("Watcher started after ${watcherStartedTime!! - startTime} ms!")
+        statusFlow.emit(status())
     }
 
     suspend fun handleAllFilesDiscovered() {
         allFilesDiscoveredTime = System.currentTimeMillis()
-        println("All files discovered after ${allFilesDiscoveredTime!! - startTime} ms!")
-        statusFlow.value = status()
+        if (cfg.enableLogging.get()) println("All files discovered after ${allFilesDiscoveredTime!! - startTime} ms!")
+        statusFlow.emit(status())
     }
 
     fun handleModificationHappened() {
@@ -148,22 +158,26 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
         filesDiscoveredByWatcherDuringInitialization++
     }
 
+    fun onException(e: Throwable) {
+        exception = e
+    }
+
     suspend fun init() {
-        statusFlow.value = status()
+        statusFlow.emit(status())
     }
 
     suspend fun teardown() {
         forwardIndex.clear()
         reverseIndex.clear()
-        statusFlow.value = status()
+        statusFlow.emit(status())
     }
 
     private suspend fun updateModificationsCounts() {
         handledModifications++
         if (allFilesDiscoveredTime != null && syncCompletedTime == null && handledModifications == totalModifications) {
             syncCompletedTime = System.currentTimeMillis()
-            println("Initial sync completed after ${syncCompletedTime!! - startTime} ms!")
-            statusFlow.value = status()
+            if (cfg.enableLogging.get()) println("Initial sync completed after ${syncCompletedTime!! - startTime} ms!")
+            statusFlow.emit(status())
         }
     }
 
@@ -174,7 +188,7 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
         return Unit
     }
 
-    private suspend fun status() = StatusResult(
+    private fun status() = StatusResult(
         indexedFiles = forwardIndex.size,
         knownTokens = reverseIndex.size,
         watcherStartTime = watcherStartedTime?.let { it - startTime },
@@ -188,8 +202,8 @@ private class IndexState(val cfg: IndexConfig, val generation: Int, val statusFl
         } else {
             totalModifications
         },
-        isBroken = !coroutineContext.isActive,
-        generation = generation
+        isBroken = !ctx.isActive,
+        generation = generation,
+        exception = exception
     )
-
 }

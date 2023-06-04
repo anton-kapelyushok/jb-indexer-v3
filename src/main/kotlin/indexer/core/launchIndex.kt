@@ -2,16 +2,14 @@ package indexer.core
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.*
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicReference
 
 suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
     val indexRef = AtomicReference<Index>()
     val startedLatch = CompletableDeferred<Unit>()
-    val statusFlow = MutableStateFlow(StatusResult.broken())
+    val statusFlow = MutableSharedFlow<StatusResult>(replay = 1)
 
     val job = parentScope.async {
         supervisorScope {
@@ -24,9 +22,11 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
                     index.await()
                 } catch (e: Throwable) {
                     ensureActive()
-                    println("Index failed with $e, rebuilding index!")
-                    if (cfg.enableLogging.get()) e.printStackTrace(System.out)
-                    println()
+                    if (cfg.enableLogging.get()) {
+                        println("Index failed with $e, rebuilding index!")
+                        e.printStackTrace(System.out)
+                        println()
+                    }
                 }
             }
         }
@@ -45,14 +45,8 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
 
         override suspend fun statusFlow(): Flow<StatusResult> {
             return statusFlow
-        }
-
-        override suspend fun enableLogging() {
-            return indexRef.get().enableLogging()
-        }
-
-        override suspend fun disableLogging() {
-            return indexRef.get().disableLogging()
+                .takeWhile { job.isActive }
+                .onCompletion { emit(StatusResult.broken()) }
         }
 
         override fun config(): IndexConfig {
@@ -66,7 +60,7 @@ fun launchIndex(
     dir: Path,
     cfg: IndexConfig,
     generation: Int = 0,
-    statusFlow: MutableStateFlow<StatusResult> = MutableStateFlow(StatusResult.broken()),
+    statusFlow: MutableSharedFlow<StatusResult> = MutableSharedFlow(replay = 1),
 ): Index {
     val userRequests = Channel<UserRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
@@ -100,15 +94,7 @@ fun launchIndex(
         }
 
         override suspend fun statusFlow(): Flow<StatusResult> {
-            return statusFlow
-        }
-
-        override suspend fun enableLogging() {
-            cfg.enableLogging.set(true)
-        }
-
-        override suspend fun disableLogging() {
-            cfg.enableLogging.set(false)
+            return statusFlow.takeWhile { job.isActive }.onCompletion { emit(StatusResult.broken()) }
         }
 
         override fun config(): IndexConfig {

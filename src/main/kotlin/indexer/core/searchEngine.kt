@@ -40,14 +40,6 @@ suspend fun launchSearchEngine(scope: CoroutineScope, index: Index): SearchEngin
                 .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
         }
 
-        override suspend fun enableLogging() {
-            cfg.enableLogging.set(true)
-        }
-
-        override suspend fun disableLogging() {
-            cfg.enableLogging.set(false)
-        }
-
         private suspend fun searchInFile(fileCandidate: FileAddress, query: String): Flow<SearchResult> = flow {
             val searchResults = withSearchEngineContext {
                 val future = CompletableDeferred<List<SearchResult>>()

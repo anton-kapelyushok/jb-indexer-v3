@@ -1,6 +1,4 @@
-import indexer.core.SearchEngine
-import indexer.core.launchResurrectingIndex
-import indexer.core.launchSearchEngine
+import indexer.core.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -22,19 +20,34 @@ fun main() {
 
 //            val dir = "."
 //        val dir = "/Users/akapelyushok/git_tree/main"
-        val dir = "/Users/akapelyushok/Projects/intellij-community"
+            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
             val index = launchResurrectingIndex(this, Path(dir), cfg)
             val searchEngine = launchSearchEngine(this, index)
 
             launch {
-                index.statusFlow().collect {
-                    if (cfg.enableLogging.get()) println("Status update: $it")
+                var prevStatus = StatusResult.broken()
+                index.statusFlow().collect { newStatus ->
+                    if (prevStatus.isBroken && !newStatus.isBroken) {
+                        println("Initializing index!")
+                    }
+                    if (!prevStatus.isBroken && newStatus.isBroken) {
+                        println("Index broke with exception ${newStatus.exception}:(")
+                        newStatus.exception?.printStackTrace(System.out)
+                    }
+                    if (prevStatus.initialSyncTime == null && newStatus.initialSyncTime != null) {
+                        println("Initial sync completed after ${newStatus.initialSyncTime}ms!")
+                    }
+                    if (prevStatus.watcherStartTime == null && newStatus.watcherStartTime != null) {
+                        println("Watcher initialized after ${newStatus.watcherStartTime}ms!")
+                    }
+                    println()
+                    prevStatus = newStatus
                 }
             }
 
-            runCmdHandler(stdin, searchEngine)
-            cancel()
+            runCmdHandler(stdin, searchEngine, cfg)
+            searchEngine.cancel()
         }
     } catch (e: CancellationException) {
         // ignore
@@ -65,6 +78,7 @@ private suspend fun readStdin(output: SendChannel<String>) {
 private suspend fun runCmdHandler(
     input: ReceiveChannel<String>,
     searchEngine: SearchEngine,
+    cfg: IndexConfig,
 ) {
     val helpMessage = "Available commands: find stop enable-logging status gc memory error help"
     println(helpMessage)
@@ -82,7 +96,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "enable-logging" -> {
-                searchEngine.enableLogging()
+                cfg.enableLogging.set(true)
             }
 
             prompt == "status" -> {
@@ -101,7 +115,7 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "" -> {
-                searchEngine.disableLogging()
+                cfg.enableLogging.set(false)
             }
 
             prompt == "error" -> {

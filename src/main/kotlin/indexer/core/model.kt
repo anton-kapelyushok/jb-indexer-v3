@@ -3,14 +3,13 @@ package indexer.core
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
+import java.util.ConcurrentModificationException
 import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
     suspend fun findFileCandidates(query: String): Flow<FileAddress>
     suspend fun status(): StatusResult
     suspend fun statusFlow(): Flow<StatusResult>
-    suspend fun enableLogging()
-    suspend fun disableLogging()
     fun config(): IndexConfig
 }
 
@@ -18,8 +17,6 @@ interface SearchEngine : Deferred<Any?> {
     suspend fun indexStatus(): StatusResult
     suspend fun indexStatusFlow(): Flow<StatusResult>
     suspend fun find(query: String): Flow<SearchResult>
-    suspend fun enableLogging()
-    suspend fun disableLogging()
 }
 
 interface IndexConfig {
@@ -53,6 +50,7 @@ data class StatusResult(
     val totalFileModifications: Long,
     val isBroken: Boolean,
     val generation: Int,
+    val exception: Throwable?,
 ) {
     companion object {
         fun broken() = StatusResult(
@@ -64,7 +62,8 @@ data class StatusResult(
             initialSyncTime = null,
             handledFileModifications = 0L,
             totalFileModifications = 0L,
-            generation = 0
+            generation = 0,
+            exception = null,
         )
     }
 }
