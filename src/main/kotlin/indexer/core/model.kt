@@ -7,14 +7,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
     suspend fun findFileCandidates(query: String): Flow<FileAddress>
-    suspend fun status(): StatusResult
-    suspend fun statusFlow(): Flow<StatusResult>
+    suspend fun status(): IndexStatus
+    suspend fun statusFlow(): Flow<IndexStatusUpdate>
 }
 
 interface SearchEngine : Deferred<Any?> {
-    suspend fun indexStatus(): StatusResult
-    suspend fun indexStatusFlow(): Flow<StatusResult>
-    suspend fun find(query: String): Flow<SearchResult>
+    suspend fun indexStatus(): IndexStatus
+    suspend fun indexStatusUpdates(): Flow<IndexStatusUpdate>
+    suspend fun find(query: String): Flow<IndexSearchResult>
 }
 
 interface IndexConfig {
@@ -37,9 +37,9 @@ interface IndexConfig {
     fun matches(line: String, query: String): Boolean
 }
 
-data class SearchResult(val path: String, val lineNo: Int, val line: String)
+data class IndexSearchResult(val path: String, val lineNo: Int, val line: String)
 
-data class StatusResult(
+data class IndexStatus(
     val indexedFiles: Int,
     val knownTokens: Int,
     val watcherStartTime: Long?,
@@ -47,11 +47,11 @@ data class StatusResult(
     val handledFileModifications: Long,
     val totalFileModifications: Long,
     val isBroken: Boolean,
-    val generation: Int,
+    val indexGeneration: Int,
     val exception: Throwable?,
 ) {
     companion object {
-        fun broken() = StatusResult(
+        fun initial(indexGeneration: Int = 0) = IndexStatus(
             isBroken = true,
 
             indexedFiles = 0,
@@ -60,8 +60,19 @@ data class StatusResult(
             initialSyncTime = null,
             handledFileModifications = 0L,
             totalFileModifications = 0L,
-            generation = 0,
+            indexGeneration = indexGeneration,
             exception = null,
         )
     }
+}
+
+sealed interface IndexStatusUpdate {
+    object Initial : IndexStatusUpdate
+    object Initializing : IndexStatusUpdate
+    data class WatcherStarted(val status: IndexStatus) : IndexStatusUpdate
+    data class AllFilesDiscovered(val status: IndexStatus) : IndexStatusUpdate
+    data class InitialFileSyncCompleted(val status: IndexStatus) : IndexStatusUpdate
+    data class IndexFailed(val reason: Throwable) : IndexStatusUpdate
+    data class Terminated(val reason: Throwable) : IndexStatusUpdate
+    object Restarting : IndexStatusUpdate
 }

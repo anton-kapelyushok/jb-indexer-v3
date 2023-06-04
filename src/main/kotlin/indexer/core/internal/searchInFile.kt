@@ -1,7 +1,7 @@
 package indexer.core.internal
 
 import indexer.core.IndexConfig
-import indexer.core.SearchResult
+import indexer.core.IndexSearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.withContext
@@ -20,7 +20,7 @@ internal suspend fun searchInFile(
                 .readLines()
                 .withIndex()
                 .filter { (_, line) -> cfg.matches(line, request.query) }
-                .map { (idx, line) -> SearchResult(request.fa.path, idx + 1, line) }
+                .map { (idx, line) -> IndexSearchResult(request.fa.path, idx + 1, line) }
         } catch (e: IOException) {
             if (cfg.enableLogging.get()) println("Failed to read ${request.fa.path}: $e")
             listOf()

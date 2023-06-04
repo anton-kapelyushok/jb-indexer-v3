@@ -1,7 +1,7 @@
 package indexer.core.internal
 
-import indexer.core.SearchResult
-import indexer.core.StatusResult
+import indexer.core.IndexSearchResult
+import indexer.core.IndexStatus
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 
@@ -56,11 +56,11 @@ internal data class FindRequest(
 ) : UserRequest
 
 internal data class StatusRequest(
-    val result: CompletableDeferred<StatusResult>
+    val result: CompletableDeferred<IndexStatus>
 ) : UserRequest
 
 internal data class SearchInFileRequest(
     val fa: FileAddress,
     val query: String,
-    val result: CompletableDeferred<List<SearchResult>>
+    val result: CompletableDeferred<List<IndexSearchResult>>
 )

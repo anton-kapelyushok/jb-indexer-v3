@@ -15,7 +15,7 @@ fun main() {
             val stdin = Channel<String>()
             launch { readStdin(stdin) }
 
-            val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+            val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
 //            val dir = "."
@@ -26,23 +26,48 @@ fun main() {
             val searchEngine = launchSearchEngine(this, cfg, index)
 
             launch(CoroutineName("displayStatus")) {
-                var prevStatus = StatusResult.broken()
-                index.statusFlow().collect { newStatus ->
-                    if (prevStatus.isBroken && !newStatus.isBroken) {
-                        println("Initializing index!")
+                var prevUpdate: IndexStatusUpdate? = null
+                searchEngine.indexStatusUpdates().collect { update ->
+                    when (update) {
+                        is IndexStatusUpdate.Initial -> {
+                            println("Index start!")
+                        } // ignore
+
+                        is IndexStatusUpdate.Initializing ->
+                            println("Initializing index!")
+
+                        is IndexStatusUpdate.InitialFileSyncCompleted ->
+                            println("Initial sync completed after ${update.status.initialSyncTime}ms!")
+
+                        is IndexStatusUpdate.AllFilesDiscovered ->
+                            println("All files discovered!")
+
+                        is IndexStatusUpdate.IndexFailed -> {
+                            println("Index failed with exception ${update.reason}")
+                            update.reason.printStackTrace(System.out)
+                        }
+
+                        is IndexStatusUpdate.Restarting ->
+                            println("Restarting index!")
+
+                        is IndexStatusUpdate.Terminated -> {
+                            val localPrevUpdate = prevUpdate
+
+                            if (localPrevUpdate is IndexStatusUpdate.IndexFailed
+                                && localPrevUpdate.reason == update.reason
+                            ) {
+                                println("Index terminated")
+                            } else {
+                                println("Index terminated with exception ${update.reason}")
+                                update.reason.printStackTrace(System.out)
+                            }
+                        }
+
+                        is IndexStatusUpdate.WatcherStarted ->
+                            println("Watcher started after ${update.status.watcherStartTime}ms!")
                     }
-                    if (!prevStatus.isBroken && newStatus.isBroken) {
-                        println("Index broke with exception ${newStatus.exception}:(")
-                        newStatus.exception?.printStackTrace(System.out)
-                    }
-                    if (prevStatus.initialSyncTime == null && newStatus.initialSyncTime != null) {
-                        println("Initial sync completed after ${newStatus.initialSyncTime}ms!")
-                    }
-                    if (prevStatus.watcherStartTime == null && newStatus.watcherStartTime != null) {
-                        println("Watcher initialized after ${newStatus.watcherStartTime}ms!")
-                    }
+                    prevUpdate = update
                     println()
-                    prevStatus = newStatus
                 }
             }
 

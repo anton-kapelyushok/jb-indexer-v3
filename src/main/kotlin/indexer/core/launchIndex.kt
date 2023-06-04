@@ -3,71 +3,24 @@ package indexer.core
 import indexer.core.internal.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.flow.*
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicReference
-
-suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg: IndexConfig): Index {
-    val indexRef = AtomicReference<Index>()
-    val startedLatch = CompletableDeferred<Unit>()
-    val statusFlow = MutableSharedFlow<StatusResult>(replay = 1)
-
-    val job = parentScope.async {
-        supervisorScope {
-            var generation = 1
-            while (true) {
-                val index = launchIndex(this, dir, cfg, generation++, statusFlow)
-                try {
-                    indexRef.set(index)
-                    startedLatch.complete(Unit)
-                    index.await()
-                } catch (e: Throwable) {
-                    ensureActive()
-                    // ignore: exception is already handled by underlying index
-                    if (cfg.enableLogging.get()) {
-                        println("Index failed with $e, rebuilding index!")
-                        e.printStackTrace(System.out)
-                        println()
-                    }
-                }
-            }
-        }
-    }
-
-    startedLatch.await()
-
-    return object : Index, Deferred<Any?> by job {
-        override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
-            return indexRef.get().findFileCandidates(query)
-        }
-
-        override suspend fun status(): StatusResult {
-            return indexRef.get().status()
-        }
-
-        override suspend fun statusFlow(): Flow<StatusResult> {
-            return statusFlow
-                .takeWhile { job.isActive }
-        }
-    }
-}
 
 fun launchIndex(
     scope: CoroutineScope,
     dir: Path,
     cfg: IndexConfig,
     generation: Int = 0,
-    statusFlow: MutableSharedFlow<StatusResult> = MutableSharedFlow(replay = 1),
 ): Index {
     val userRequests = Channel<UserRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
+    val statusFlow = MutableStateFlow<IndexStatusUpdate>(
+        IndexStatusUpdate.Initial
+    )
 
-    val job = scope.async {
+    val deferred = scope.async {
         launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
         repeat(4) {
             launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
@@ -77,25 +30,31 @@ fun launchIndex(
         }
     }
 
-    job.invokeOnCompletion {
-        userRequests.cancel(it?.let { CancellationException(it.message, it) })
-        indexUpdateRequests.cancel(it?.let { CancellationException(it.message, it) })
-        statusUpdates.cancel(it?.let { CancellationException(it.message, it) })
-        fileEvents.cancel(it?.let { CancellationException(it.message, it) })
+    deferred.invokeOnCompletion {
+        if (statusFlow.value !is IndexStatusUpdate.Terminated) {
+            statusFlow.value = IndexStatusUpdate.Terminated(
+                it
+                    ?: IllegalStateException("Index terminated without exception?")
+            )
+        }
     }
 
-    return object : Index, Deferred<Any?> by job {
-        override suspend fun status(): StatusResult {
+    return object : Index, Deferred<Any?> by deferred {
+        override suspend fun status(): IndexStatus {
             return withIndexContext {
-                val future = CompletableDeferred<StatusResult>()
+                val future = CompletableDeferred<IndexStatus>()
                 userRequests.send(StatusRequest(future))
                 future.await()
-            } ?: StatusResult.broken()
+            } ?: IndexStatus.initial()
         }
 
-        override suspend fun statusFlow(): Flow<StatusResult> {
-            return statusFlow
-                .takeWhile { job.isActive }
+        override suspend fun statusFlow(): Flow<IndexStatusUpdate> {
+            return flow {
+                statusFlow
+                    .onEach { emit(it) }
+                    .takeWhile { it !is IndexStatusUpdate.Terminated }
+                    .collect()
+            }
         }
 
         override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
@@ -115,7 +74,7 @@ fun launchIndex(
             block: suspend CoroutineScope.() -> T
         ): T? = coroutineScope {
             try {
-                withContext(job) {
+                withContext(deferred) {
                     block()
                 }
             } catch (e: CancellationException) {
@@ -125,4 +84,3 @@ fun launchIndex(
         }
     }
 }
-
