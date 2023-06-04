@@ -24,7 +24,6 @@ internal suspend fun index(
 ) = coroutineScope {
     val index = IndexState(cfg, coroutineContext, generation, statusFlow)
 
-    launch { delay(5000); error("test") }
     try {
         index.init()
         while (true) {
