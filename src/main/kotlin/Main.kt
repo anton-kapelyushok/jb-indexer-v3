@@ -11,7 +11,7 @@ import kotlin.io.path.Path
 
 fun main() {
     try {
-        runBlocking(Dispatchers.Default) {
+        runBlocking(Dispatchers.Default + CoroutineName("main")) {
             val stdin = Channel<String>()
             launch { readStdin(stdin) }
 
@@ -25,7 +25,7 @@ fun main() {
             val index = launchResurrectingIndex(this, Path(dir), cfg)
             val searchEngine = launchSearchEngine(this, index)
 
-            launch {
+            launch(CoroutineName("displayStatus")) {
                 var prevStatus = StatusResult.broken()
                 index.statusFlow().collect { newStatus ->
                     if (prevStatus.isBroken && !newStatus.isBroken) {
@@ -55,7 +55,7 @@ fun main() {
 }
 
 private suspend fun readStdin(output: SendChannel<String>) {
-    withContext(Dispatchers.IO) {
+    withContext(Dispatchers.IO + CoroutineName("stdReader")) {
         val stdinReaderExecutor =
             Executors.newSingleThreadExecutor {
                 Executors.defaultThreadFactory().newThread(it).apply { isDaemon = true }
@@ -79,7 +79,7 @@ private suspend fun runCmdHandler(
     input: ReceiveChannel<String>,
     searchEngine: SearchEngine,
     cfg: IndexConfig,
-) {
+) = withContext(CoroutineName("cmdHandler")) {
     val helpMessage = "Available commands: find stop enable-logging status gc memory error help"
     println(helpMessage)
     println()
