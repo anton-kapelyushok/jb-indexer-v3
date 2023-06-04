@@ -8,9 +8,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
-suspend fun launchSearchEngine(scope: CoroutineScope, index: Index): SearchEngine {
+suspend fun launchSearchEngine(scope: CoroutineScope, cfg: IndexConfig, index: Index): SearchEngine {
     val searchInFileRequests = Channel<SearchInFileRequest>()
-    val cfg = index.config()
 
     val job = scope.async {
         repeat(4) {

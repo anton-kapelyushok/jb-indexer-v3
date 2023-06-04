@@ -23,7 +23,7 @@ fun main() {
             val dir = "/Users/akapelyushok/Projects/intellij-community"
 
             val index = launchResurrectingIndex(this, Path(dir), cfg)
-            val searchEngine = launchSearchEngine(this, index)
+            val searchEngine = launchSearchEngine(this, cfg, index)
 
             launch(CoroutineName("displayStatus")) {
                 var prevStatus = StatusResult.broken()

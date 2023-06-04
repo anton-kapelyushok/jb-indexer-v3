@@ -1,15 +1,6 @@
 package indexer.core
 
 import indexer.core.internal.*
-import indexer.core.internal.FileEvent
-import indexer.core.internal.FindRequest
-import indexer.core.internal.IndexUpdateRequest
-import indexer.core.internal.StatusRequest
-import indexer.core.internal.StatusUpdate
-import indexer.core.internal.UserRequest
-import indexer.core.internal.index
-import indexer.core.internal.indexer
-import indexer.core.internal.watcher
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
@@ -58,10 +49,6 @@ suspend fun launchResurrectingIndex(parentScope: CoroutineScope, dir: Path, cfg:
                 .takeWhile { job.isActive }
                 .onCompletion { emit(StatusResult.broken()) }
         }
-
-        override fun config(): IndexConfig {
-            return cfg
-        }
     }
 }
 
@@ -105,10 +92,6 @@ fun launchIndex(
 
         override suspend fun statusFlow(): Flow<StatusResult> {
             return statusFlow.takeWhile { job.isActive }.onCompletion { emit(StatusResult.broken()) }
-        }
-
-        override fun config(): IndexConfig {
-            return cfg
         }
 
         override suspend fun findFileCandidates(query: String): Flow<FileAddress> {

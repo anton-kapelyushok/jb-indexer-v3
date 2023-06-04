@@ -9,7 +9,6 @@ interface Index : Deferred<Any?> {
     suspend fun findFileCandidates(query: String): Flow<FileAddress>
     suspend fun status(): StatusResult
     suspend fun statusFlow(): Flow<StatusResult>
-    fun config(): IndexConfig
 }
 
 interface SearchEngine : Deferred<Any?> {
