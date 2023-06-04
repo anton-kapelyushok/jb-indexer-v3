@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import kotlin.io.path.Path
 import kotlin.io.path.fileSize
 import kotlin.io.path.readLines
@@ -42,7 +43,7 @@ private suspend fun handleUpdated(cfg: IndexConfig, event: FileEvent, indexReque
                 .toSet()
 
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, tokens, event.source))
-        } catch (e: Throwable) {
+        } catch (e: IOException) {
             indexRequests.send(UpdateFileContentRequest(event.t, event.path, emptySet(), event.source))
             if (cfg.enableLogging.get()) println("Failed to read ${event.path}: $e")
         }

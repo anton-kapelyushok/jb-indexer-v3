@@ -2,9 +2,9 @@ package indexer.core
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 internal suspend fun searchInFile(
     cfg: IndexConfig,
@@ -12,15 +12,18 @@ internal suspend fun searchInFile(
 ) = withContext(Dispatchers.IO) {
     for (request in requests) {
         val result = request.result
-        val flow = flow {
+
+        val results = try {
             File(request.fa.path)
                 .readLines()
                 .withIndex()
                 .filter { (_, line) -> cfg.matches(line, request.query) }
                 .map { (idx, line) -> SearchResult(request.fa.path, idx + 1, line) }
-                .forEach { emit(it) }
+        } catch (e: IOException) {
+            if (cfg.enableLogging.get()) println("Failed to read ${request.fa.path}: $e")
+            listOf()
         }
 
-        result.complete(flow)
+        result.complete(results)
     }
 }

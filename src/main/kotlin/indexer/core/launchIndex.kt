@@ -106,11 +106,14 @@ fun CoroutineScope.launchIndex(dir: Path, cfg: IndexConfig, generation: Int = 0)
                 flow
                     .buffer(Int.MAX_VALUE)
                     .map { fa ->
-                        withIndexContext {
-                            val flowFuture = CompletableDeferred<Flow<SearchResult>>()
-                            searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
-                            flowFuture.await()
-                        } ?: flowOf()
+                        flow {
+                            val searchResults = withIndexContext {
+                                val flowFuture = CompletableDeferred<List<SearchResult>>()
+                                searchInFileRequests.send(SearchInFileRequest(fa, query, flowFuture))
+                                flowFuture.await()
+                            } ?: listOf()
+                            emitAll(searchResults.asFlow())
+                        }
                     }
                     .flattenMerge(concurrency = 4) // bounded by searchInFile coroutine concurrency
             } ?: flowOf()
