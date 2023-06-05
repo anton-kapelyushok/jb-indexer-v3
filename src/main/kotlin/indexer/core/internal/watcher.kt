@@ -110,7 +110,7 @@ internal suspend fun emitInitialContent(
             // the usual cause is someone is deleting directory content while we are trying to index it
             // there is a good chance that it will throw again if we retry immediately
             // add a backoff to handle this
-            delay(((1.25.pow(i - 1.0) - 1) * 500).toLong()) //
+            delay(((1.25.pow(i - 1.0) - 1) * 500).toLong())
             continue
         }
         break
