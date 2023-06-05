@@ -177,7 +177,7 @@ private fun buildWatcher(
     .listener(object : DirectoryChangeListener {
         override fun onEvent(event: DirectoryChangeEvent) {
             if (event.isDirectory) return
-            runBlocking(ctx) {
+            runBlocking(ctx + Dispatchers.Unconfined) {
                 // buffer watcher events until all files are emitted
                 initialSyncCompleteLatch.await()
 
