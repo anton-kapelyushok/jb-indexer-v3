@@ -94,11 +94,12 @@ internal class IndexStateHolder(
 
     suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         handledEventsCount++
+        checkEventHappenedAfterReset(event.t) ?: return
         handleFileEventHandled()
 
         val fa = event.fileAddress
 
-        checkUpdateTime(event.t, fa) ?: return
+        checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
         val tokens = event.tokens.map { token -> tokenInterner.intern(token) }
 
@@ -112,10 +113,12 @@ internal class IndexStateHolder(
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
         handledEventsCount++
+        checkEventHappenedAfterReset(event.t) ?: return
         handleFileEventHandled()
+
         val fa = event.fileAddress
 
-        checkUpdateTime(event.t, fa) ?: return
+        checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
         forwardIndex[fa]?.let { prevTokens ->
             prevTokens.forEach { reverseIndex[it]?.remove(fa) }
@@ -208,8 +211,12 @@ internal class IndexStateHolder(
         }
     }
 
-    private fun checkUpdateTime(eventTime: Long, fa: FileAddress): Unit? {
+    private fun checkEventHappenedAfterReset(eventTime: Long): Unit? {
         if (eventTime < logicalTimeOfLastWatcherReset) return null
+        return Unit
+    }
+
+    private fun checkLaterEventAlreadyHandled(eventTime: Long, fa: FileAddress): Unit? {
         val lastUpdate = fileUpdateTimes[fa] ?: 0L
         if (lastUpdate > eventTime) return null
         fileUpdateTimes[fa] = eventTime
@@ -217,7 +224,7 @@ internal class IndexStateHolder(
     }
 
     private fun status() = IndexState(
-        eventsCount = 0L,
+        eventsCount = handledEventsCount,
         indexedFiles = forwardIndex.size,
         knownTokens = reverseIndex.size,
         watcherStarted = watcherStarted,
