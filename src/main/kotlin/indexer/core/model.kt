@@ -86,6 +86,18 @@ data class IndexState(
     }
 }
 
+/**
+ * State transitions:
+ *
+ *
+ * Initial -> Initializing -> [ WatcherStarted ] -> AllFilesDiscovered -> IndexInSync -> IndexOutOfSync-+
+ *                                       ^                                      ^                       |
+ *                                       |                                      |                       |
+ *            ReinitializingBecauseFileSyncFailed                               +-----------------------+                                                                                                     |
+ *
+ *
+ * + Failed - terminal state, can be reached from any state
+ */
 sealed interface IndexStatusUpdate {
     val ts: Long
 

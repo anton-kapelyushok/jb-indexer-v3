@@ -73,7 +73,7 @@ Two top level coroutines
 * launchIndex
     * launches three types worker coroutines
         * index - contains index state, answers user queries
-        * watcher - watches filesystem
+        * fsSync - synchronizes file system
         * indexer - reads and parses files found by watcher
 
 ```
@@ -90,9 +90,9 @@ Two top level coroutines
  |                            |                  
  | indexUpdateRequests        | statusUpdates    
  |                            |                  
-+-------+                    +-------+         
-|indexer|<----fileEvents-----|watcher|         
-+-------+                    +-------+         
++-------+                    +------+         
+|indexer|<-- fileSyncEvents--|fsSync |         
++-------+                    +------+         
 ```
 
 * searchEngine
@@ -123,6 +123,7 @@ Two top level coroutines
             * start the watcher
             * wait until it is initialized, but buffer its events
             * emit all files in directory
+              * if error happens on this step, retry 
             * start emitting watcher events (buffered and new)
         * if watcher has failed, start over
 * search is executed as following
