@@ -13,7 +13,7 @@ suspend fun main() = try {
 
         val stdin = startStdReaderDaemon()
 
-        val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
         val dir = "."
