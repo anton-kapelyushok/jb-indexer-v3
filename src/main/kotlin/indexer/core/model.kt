@@ -98,7 +98,7 @@ sealed interface IndexStatusUpdate {
     data class IndexInSync(override val ts: Long, val status: IndexState) : IndexStatusUpdate
     data class IndexOutOfSync(override val ts: Long, val status: IndexState) : IndexStatusUpdate
 
-    data class ReinitializingBecauseWatcherFailed(override val ts: Long, val reason: Throwable) : IndexStatusUpdate
+    data class ReinitializingBecauseFileSyncFailed(override val ts: Long, val reason: Throwable) : IndexStatusUpdate
 
     data class Failed(override val ts: Long, val reason: Throwable) : IndexStatusUpdate
 }

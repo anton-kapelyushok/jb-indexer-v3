@@ -14,7 +14,7 @@ fun CoroutineScope.launchIndex(
     val userRequests = Channel<UserRequest>()
     val indexUpdateRequests = Channel<IndexUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
-    val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
+    val fileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
     val statusFlow = MutableSharedFlow<IndexStatusUpdate>(
         replay = 16, // is enough for everyone
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -22,9 +22,9 @@ fun CoroutineScope.launchIndex(
     statusFlow.tryEmit(IndexStatusUpdate.Initializing(System.currentTimeMillis()))
 
     val deferred = async(CoroutineName("launchIndex")) {
-        launch(CoroutineName("watcher")) { watcher(cfg, dir, fileEvents, statusUpdates) }
+        launch(CoroutineName("syncFs")) { syncFs(cfg, dir, fileSyncEvents, statusUpdates) }
         repeat(4) {
-            launch(CoroutineName("indexer-$it")) { indexer(cfg, fileEvents, indexUpdateRequests) }
+            launch(CoroutineName("indexer-$it")) { indexer(cfg, fileSyncEvents, indexUpdateRequests) }
         }
         launch(CoroutineName("index")) {
             index(cfg, userRequests, indexUpdateRequests, statusUpdates, statusFlow)

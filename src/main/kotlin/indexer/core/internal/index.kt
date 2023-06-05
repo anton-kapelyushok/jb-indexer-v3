@@ -38,7 +38,7 @@ internal suspend fun index(
                         WatcherStarted -> index.handleWatcherStarted()
                         is FileUpdated -> index.handleFileUpdated()
                         AllFilesDiscovered -> index.handleAllFilesDiscovered()
-                        is WatcherFailed -> index.handleWatcherFailed(event)
+                        is FileSyncFailed -> index.handleFileSyncFailed(event)
                     }
                 }
                 userRequests.onReceive { event ->
@@ -185,7 +185,7 @@ internal class IndexStateHolder(
         reverseIndex.clear()
     }
 
-    suspend fun handleWatcherFailed(event: WatcherFailed) {
+    suspend fun handleFileSyncFailed(event: FileSyncFailed) {
         clock++
         watcherStarted = false
         allFilesDiscovered = false
@@ -198,7 +198,7 @@ internal class IndexStateHolder(
         handledFileEvents = 0L
         logicalTimeOfLastWatcherReset = event.t
 
-        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), event.reason))
+        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseFileSyncFailed(System.currentTimeMillis(), event.reason))
     }
 
     private suspend fun handleFileEventHandled() {

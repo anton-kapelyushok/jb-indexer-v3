@@ -13,7 +13,7 @@ import kotlin.io.path.readLines
 
 internal suspend fun indexer(
     cfg: IndexConfig,
-    watchEvents: ReceiveChannel<FileEvent>,
+    watchEvents: ReceiveChannel<FileSyncEvent>,
     indexUpdateRequests: SendChannel<IndexUpdateRequest>
 ) {
     for (event in watchEvents) {
@@ -25,13 +25,13 @@ internal suspend fun indexer(
     }
 }
 
-private suspend fun handleRemoved(event: FileEvent, indexUpdateRequests: SendChannel<IndexUpdateRequest>) {
+private suspend fun handleRemoved(event: FileSyncEvent, indexUpdateRequests: SendChannel<IndexUpdateRequest>) {
     indexUpdateRequests.send(RemoveFileRequest(event.t, event.fileAddress, event.source))
 }
 
 private suspend fun handleUpdated(
     cfg: IndexConfig,
-    event: FileEvent,
+    event: FileSyncEvent,
     indexUpdateRequests: SendChannel<IndexUpdateRequest>
 ) {
     withContext(Dispatchers.IO) {

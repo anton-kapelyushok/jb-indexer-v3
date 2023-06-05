@@ -69,9 +69,9 @@ private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
                 is IndexStatusUpdate.WatcherStarted ->
                     println("Watcher started after after ${update.ts - update.status.lastRestartTime}ms!")
 
-                is IndexStatusUpdate.ReinitializingBecauseWatcherFailed -> {
+                is IndexStatusUpdate.ReinitializingBecauseFileSyncFailed -> {
                     wasInSync = false
-                    println("Watcher failed with ${update.reason} - reinitializing it")
+                    println("File sync failed with ${update.reason} - reinitializing it")
                     update.reason.printStackTrace(System.out)
                 }
             }

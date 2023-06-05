@@ -16,7 +16,7 @@ internal enum class FileEventType {
     MODIFY,
 }
 
-internal data class FileEvent(
+internal data class FileSyncEvent(
     val t: Long,
     val fileAddress: FileAddress,
     val source: FileEventSource,
@@ -25,7 +25,7 @@ internal data class FileEvent(
 
 internal sealed interface StatusUpdate
 internal object WatcherStarted : StatusUpdate
-internal data class WatcherFailed(val t: Long, val reason: Throwable) : StatusUpdate
+internal data class FileSyncFailed(val t: Long, val reason: Throwable) : StatusUpdate
 internal object AllFilesDiscovered : StatusUpdate
 internal object WatcherDiscoveredFileDuringInitialization : StatusUpdate
 internal data class FileUpdated(val source: FileEventSource) : StatusUpdate
