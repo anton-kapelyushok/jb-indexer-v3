@@ -195,6 +195,7 @@ internal class IndexStateHolder(
         filesDiscoveredByWatcherDuringInitialization = 0L
         totalFileEvents = 0L
         handledFileEvents = 0L
+        logicalTimeOfLastWatcherReset = event.t
 
         emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), event.reason))
     }
@@ -218,7 +219,7 @@ internal class IndexStateHolder(
 
     private fun checkLaterEventAlreadyHandled(eventTime: Long, fa: FileAddress): Unit? {
         val lastUpdate = fileUpdateTimes[fa] ?: 0L
-        if (lastUpdate > eventTime) return null
+        if (eventTime < lastUpdate) return null
         fileUpdateTimes[fa] = eventTime
         return Unit
     }
