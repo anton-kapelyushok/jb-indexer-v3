@@ -42,6 +42,10 @@ interface IndexConfig {
     // however this flow has limited buffer and error might be lost
     // you can use this function to make sure you catch this exception
     suspend fun handleWatcherError(e: Throwable)
+
+    // initial file sync can throw if directory content changes during iterating
+    // it gets retried immediately, but you might want to log this error
+    suspend fun handleInitialFileSyncError(e: Throwable)
 }
 
 data class IndexSearchResult(val path: String, val lineNo: Int, val line: String)

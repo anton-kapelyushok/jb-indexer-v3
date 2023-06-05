@@ -13,10 +13,10 @@ suspend fun main() = try {
 
         val stdin = startStdReaderDaemon()
 
-        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-        val dir = "/Users/akapelyushok/tmp/intellij-community"
+        val dir = "/Users/akapelyushok/tmp/intellij-community1"
 //            val dir = "/Users/akapelyushok/git_tree/main"
 //            val dir = "/Users/akapelyushok/Projects/intellij-community"
 

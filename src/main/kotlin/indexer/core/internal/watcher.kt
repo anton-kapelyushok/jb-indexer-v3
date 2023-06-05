@@ -13,10 +13,13 @@ import io.methvin.watcher.hashing.FileHasher
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
 import org.slf4j.helpers.NOPLogger
+import java.io.FileNotFoundException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
+import kotlin.io.path.exists
 
 internal suspend fun watcher(
     cfg: IndexConfig,
@@ -50,7 +53,7 @@ internal suspend fun watcher(
             CompletableDeferred() // never completes
         }
 
-        emitInitialContent(dir, clock, faInterner, initialSyncCompleteLatch, fileEvents, statusUpdates)
+        emitInitialContent(dir, cfg, clock, faInterner, initialSyncCompleteLatch, fileEvents, statusUpdates)
 
         val watcherResult = watcherDeferred.await()
         val watcherException = watcherResult.exceptionOrNull()
@@ -63,31 +66,45 @@ internal suspend fun watcher(
 
 internal suspend fun emitInitialContent(
     dir: Path,
+    cfg: IndexConfig,
     clock: AtomicLong,
     faInterner: Interner<FileAddress>,
     initialSyncCompleteLatch: CompletableDeferred<Unit>,
     outputChannel: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
 ) {
-    withContext(Dispatchers.IO) {
-        Files.walk(dir)
-            .use { stream ->
-                stream
-                    .filter(Files::isRegularFile)
-                    .forEach {
-                        runBlocking(coroutineContext + Dispatchers.Unconfined) {
-                            statusUpdates.send(FileUpdated(INITIAL_SYNC))
-                            outputChannel.send(
-                                FileEvent(
-                                    clock.incrementAndGet(),
-                                    it.toFile().canonicalPath.toFileAddress(faInterner),
-                                    INITIAL_SYNC,
-                                    CREATE,
-                                )
-                            )
-                        }
+    while (true) {
+        try {
+            withContext(Dispatchers.IO) {
+                Files.walk(dir)
+                    .use { stream ->
+                        stream
+                            .filter(Files::isRegularFile)
+                            .forEach {
+                                runBlocking(coroutineContext + Dispatchers.Unconfined) {
+                                    statusUpdates.send(FileUpdated(INITIAL_SYNC))
+                                    outputChannel.send(
+                                        FileEvent(
+                                            clock.incrementAndGet(),
+                                            it.toFile().canonicalPath.toFileAddress(faInterner),
+                                            INITIAL_SYNC,
+                                            CREATE,
+                                        )
+                                    )
+                                }
+                            }
                     }
             }
+        } catch (e: Throwable) {
+            coroutineContext.ensureActive()
+            if (!dir.exists()) {
+                val e1 = FileNotFoundException(dir.toFile().canonicalPath)
+                e1.addSuppressed(e)
+                cfg.handleInitialFileSyncError(e1)
+                throw e
+            }
+            cfg.handleInitialFileSyncError(e)
+        }
 
         initialSyncCompleteLatch.complete(Unit)
         statusUpdates.send(AllFilesDiscovered)

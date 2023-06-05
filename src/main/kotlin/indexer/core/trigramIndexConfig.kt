@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 fun trigramIndexConfig(
     enableWatcher: Boolean = true,
     handleWatcherError: suspend (e: Throwable) -> Unit = {},
+    handleInitialFileSyncError: suspend (e: Throwable) -> Unit = {},
 ) = object : IndexConfig {
     override val enableLogging = AtomicBoolean(false)
 
@@ -63,5 +64,9 @@ fun trigramIndexConfig(
 
     override suspend fun handleWatcherError(e: Throwable) {
         handleWatcherError(e)
+    }
+
+    override suspend fun handleInitialFileSyncError(e: Throwable) {
+        handleInitialFileSyncError(e)
     }
 }
