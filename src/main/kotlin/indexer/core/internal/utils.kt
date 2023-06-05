@@ -11,7 +11,7 @@ import kotlinx.coroutines.*
  *
  * withContext(Dispatchers.IO) {
  *     val watcher = DirectoryWatcher()
- *     invokeOnCancellation(this) { watcher.close() }
+ *     invokeOnCancellation { watcher.close() }
  *     watcher.watch()
  * }
  *
@@ -19,9 +19,11 @@ import kotlinx.coroutines.*
  * invokeOnCancellation will call watcher.close() on coroutine cancellation
  *
  */
-internal suspend fun invokeOnCancellation(scope: CoroutineScope, close: suspend () -> Unit) {
+internal suspend fun CoroutineScope.invokeOnCancellation(close: suspend () -> Unit) {
+    val parentScope = this
     val closerStartedLatch = CompletableDeferred<Unit>()
-    scope.launch {
+
+    parentScope.launch {
         try {
             closerStartedLatch.complete(Unit)
             awaitCancellation()

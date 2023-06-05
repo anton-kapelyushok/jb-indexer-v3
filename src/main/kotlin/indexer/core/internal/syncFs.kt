@@ -134,15 +134,17 @@ internal suspend fun watch(
                 coroutineContext,
                 dir, clock, faInterner, initialSyncCompleteLatch, fileSyncEvents, statusUpdates
             )
-            invokeOnCancellation(this) { watcher.close() }
-            runInterruptible {
-                val f = watcher.watchAsync()
-                runBlocking(coroutineContext) {
-                    statusUpdates.send(WatcherStarted)
-                    watcherStartedLatch.complete(Unit)
-                }
-                f.join()
-            }
+            invokeOnCancellation { watcher.close() }
+
+            // watcher.watchAsync() is reading the whole directory on start and is blocking
+            // this operation takes about 20s on intellij-community repository - and we want to cancel it
+            // funny thing is, this operation is not interruptible by default
+            // this can be worked around by checking interruption flag in fileHasher,
+            // which is called on every encountered file
+            val future = runInterruptible { watcher.watchAsync() }
+            statusUpdates.send(WatcherStarted)
+            watcherStartedLatch.complete(Unit)
+            future.join()
         }
     }
 }
