@@ -18,7 +18,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
 import kotlin.io.path.exists
 import kotlin.math.pow
 
@@ -74,9 +73,10 @@ internal suspend fun emitInitialContent(
     outputChannel: SendChannel<FileEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
 ) {
-    for (i in 1..10) {
-        try {
-            withContext(Dispatchers.IO) {
+    withContext(Dispatchers.IO) {
+
+        for (i in 1..10) {
+            try {
                 Files.walk(dir)
                     .use { stream ->
                         stream
@@ -94,30 +94,31 @@ internal suspend fun emitInitialContent(
                                     )
                                 }
                             }
+
                     }
-            }
-        } catch (e: Throwable) {
-            coroutineContext.ensureActive()
-            if (!dir.exists()) {
-                val e1 = FileNotFoundException(dir.toFile().canonicalPath)
-                e1.addSuppressed(e)
-                cfg.handleInitialFileSyncError(e1)
-                throw e
-            }
+            } catch (e: Throwable) {
+                coroutineContext.ensureActive()
+                if (!dir.exists()) {
+                    val e1 = FileNotFoundException(dir.toFile().canonicalPath)
+                    e1.addSuppressed(e)
+                    cfg.handleInitialFileSyncError(e1)
+                    throw e
+                }
 
-            cfg.handleInitialFileSyncError(e)
+                cfg.handleInitialFileSyncError(e)
 
-            // the usual cause is someone is deleting directory content while we are trying to index it
-            // there is a good chance that it will throw again if we retry immediately
-            // add a backoff to handle this
-            delay(((1.25.pow(i - 1.0) - 1) * 500).toLong())
-            continue
+                // the usual cause is someone is deleting directory content while we are trying to index it
+                // there is a good chance that it will throw again if we retry immediately
+                // add a backoff to handle this
+                delay(((1.25.pow(i - 1.0) - 1) * 500).toLong())
+                continue
+            }
+            break
         }
-        break
-    }
 
-    initialSyncCompleteLatch.complete(Unit)
-    statusUpdates.send(AllFilesDiscovered)
+        initialSyncCompleteLatch.complete(Unit)
+        statusUpdates.send(AllFilesDiscovered)
+    }
 }
 
 internal suspend fun watch(
