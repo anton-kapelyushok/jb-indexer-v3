@@ -106,9 +106,13 @@ Two top level coroutines
     * uses ConcurrentHashMap to allow reads parallel with writes
         * considered HashMap with rw lock here, but decided against it - blocking writes during reads seemed like a bad
           decision
-        * also considered HashMap with taking snapshots on read or write - it was too slow
-        * also considered SegmentedIndex - also too slow
+        * considered HashMap with taking snapshots on read or write - it was too slow
+        * [considered SegmentedIndex](https://github.com/anton-kapelyushok/jb-indexer-v2/blob/segmented-index-experiment/src/main/kotlin/indexer/core/segmented.kt) -
+          too slow, but takes significantly less memory (530MB vs 1500MB now)
         * stores only file information (no positions in file) to fit in memory
+            * [considered storing token offsets](https://github.com/anton-kapelyushok/jb-indexer-v2/blob/line-offsets-experiment-2-offsets/src/main/kotlin/indexer/core/internal/index.kt#L74-L76),
+              token line numbers and line separator index - takes 50% more memory (2200MB vs 1500 now), increases search
+              speed on some queries
     * listens for three channels in select to prioritize events: statusUpdates > userRequests > indexUpdateRequests
 * watcher
     * decided to use `io.methvin:directory-watcher` library
