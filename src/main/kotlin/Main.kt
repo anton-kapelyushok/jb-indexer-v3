@@ -16,7 +16,7 @@ suspend fun main() = try {
         val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = true)
 
-        val dir = "/Users/akapelyushok/tmp/intellij-community1"
+        val dir = "."
 //            val dir = "/Users/akapelyushok/git_tree/main"
 //            val dir = "/Users/akapelyushok/Projects/intellij-community"
 
