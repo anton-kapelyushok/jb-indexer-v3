@@ -13,7 +13,7 @@ repositories {
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0-RC")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
     implementation("io.methvin:directory-watcher:0.18.0")
     implementation("com.google.guava:guava:32.0.0-jre")
     testImplementation(kotlin("test"))
