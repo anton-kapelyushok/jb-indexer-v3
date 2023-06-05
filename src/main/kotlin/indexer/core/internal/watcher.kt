@@ -19,7 +19,9 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
 import kotlin.math.pow
+import kotlin.streams.asSequence
 
 internal suspend fun watcher(
     cfg: IndexConfig,
@@ -74,27 +76,22 @@ internal suspend fun emitInitialContent(
     statusUpdates: SendChannel<StatusUpdate>,
 ) {
     withContext(Dispatchers.IO) {
-
-        for (i in 1..10) {
+        val retryCount = 10
+        for (retryAttempt in 1..retryCount) {
             try {
                 Files.walk(dir)
-                    .use { stream ->
-                        stream
-                            .filter(Files::isRegularFile)
-                            .forEach {
-                                runBlocking(coroutineContext + Dispatchers.Unconfined) {
-                                    statusUpdates.send(FileUpdated(INITIAL_SYNC))
-                                    outputChannel.send(
-                                        FileEvent(
-                                            clock.incrementAndGet(),
-                                            it.toFile().canonicalPath.toFileAddress(faInterner),
-                                            INITIAL_SYNC,
-                                            CREATE,
-                                        )
-                                    )
-                                }
-                            }
-
+                    .asSequence()
+                    .filter { it.isRegularFile() }
+                    .forEach {
+                        statusUpdates.send(FileUpdated(INITIAL_SYNC))
+                        outputChannel.send(
+                            FileEvent(
+                                clock.incrementAndGet(),
+                                it.toFile().canonicalPath.toFileAddress(faInterner),
+                                INITIAL_SYNC,
+                                CREATE,
+                            )
+                        )
                     }
             } catch (e: Throwable) {
                 coroutineContext.ensureActive()
@@ -106,11 +103,12 @@ internal suspend fun emitInitialContent(
                 }
 
                 cfg.handleInitialFileSyncError(e)
+                if (retryAttempt == retryCount) throw e
 
                 // the usual cause is someone is deleting directory content while we are trying to index it
                 // there is a good chance that it will throw again if we retry immediately
                 // add a backoff to handle this
-                delay(((1.25.pow(i - 1.0) - 1) * 500).toLong())
+                delay(((1.25.pow(retryAttempt - 1.0) - 1) * 500).toLong())
                 continue
             }
             break

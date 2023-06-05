@@ -73,9 +73,13 @@ internal class IndexStateHolder(
     private val ctx: CoroutineContext,
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
+    private val forwardIndex = ConcurrentHashMap<FileAddress, MutableSet<String>>()
+    private val reverseIndex = ConcurrentHashMap<String, MutableSet<FileAddress>>()
+
+    private var clock = 0L
+
     private var logicalTimeOfLastWatcherReset = 0L
 
-    private var handledEventsCount = 0L
     private val startTime = System.currentTimeMillis()
     private var lastRestartTime = System.currentTimeMillis()
     private var watcherStarted: Boolean = false
@@ -85,15 +89,12 @@ internal class IndexStateHolder(
     private val tokenInterner: Interner<String> = Interners.newWeakInterner()
     private val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
 
-    private val forwardIndex = ConcurrentHashMap<FileAddress, MutableSet<String>>()
-    private val reverseIndex = ConcurrentHashMap<String, MutableSet<FileAddress>>()
-
     private var filesDiscoveredByWatcherDuringInitialization = 0L
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
 
     suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
-        handledEventsCount++
+        clock++
         checkEventHappenedAfterReset(event.t) ?: return
         handleFileEventHandled()
 
@@ -112,7 +113,7 @@ internal class IndexStateHolder(
     }
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
-        handledEventsCount++
+        clock++
         checkEventHappenedAfterReset(event.t) ?: return
         handleFileEventHandled()
 
@@ -163,7 +164,7 @@ internal class IndexStateHolder(
 
     suspend fun handleFileUpdated() {
         val wasInSync = allFilesDiscovered && handledFileEvents == totalFileEvents
-        handledEventsCount++
+        clock++
         totalFileEvents++
         if (wasInSync) {
             emitStatusUpdate(IndexStatusUpdate.IndexOutOfSync(System.currentTimeMillis(), status()))
@@ -175,17 +176,17 @@ internal class IndexStateHolder(
     }
 
     suspend fun handleException(e: Throwable) {
-        handledEventsCount++
+        clock++
     }
 
     suspend fun handleComplete() {
-        handledEventsCount++
+        clock++
         forwardIndex.clear()
         reverseIndex.clear()
     }
 
     suspend fun handleWatcherFailed(event: WatcherFailed) {
-        handledEventsCount++
+        clock++
         watcherStarted = false
         allFilesDiscovered = false
         lastRestartTime = System.currentTimeMillis()
@@ -225,7 +226,7 @@ internal class IndexStateHolder(
     }
 
     private fun status() = IndexState(
-        eventsCount = handledEventsCount,
+        clock = clock,
         indexedFiles = forwardIndex.size,
         knownTokens = reverseIndex.size,
         watcherStarted = watcherStarted,

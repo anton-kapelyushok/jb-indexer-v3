@@ -51,7 +51,7 @@ interface IndexConfig {
 data class IndexSearchResult(val path: String, val lineNo: Int, val line: String)
 
 data class IndexState(
-    val eventsCount: Long,
+    val clock: Long,
 
     var startTime: Long,
     var lastRestartTime: Long,
@@ -71,7 +71,7 @@ data class IndexState(
 
     companion object {
         fun broken() = IndexState(
-            eventsCount = -1L,
+            clock = -1L,
             isBroken = true,
 
             indexedFiles = 0,
