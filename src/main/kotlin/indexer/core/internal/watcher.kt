@@ -57,7 +57,7 @@ internal suspend fun watcher(
             ?: IllegalStateException("Watcher completed without exception for some reason")
 
         cfg.handleWatcherError(watcherException)
-        statusUpdates.send(WatcherFailed(watcherException))
+        statusUpdates.send(WatcherFailed(clock.incrementAndGet(), watcherException))
     }
 }
 

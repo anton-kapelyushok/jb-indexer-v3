@@ -61,6 +61,10 @@ data class IndexState(
     val allFileDiscovered: Boolean,
 ) {
 
+    fun isInSync(): Boolean {
+        return !isBroken && allFileDiscovered && handledFileEvents == totalFileEvents
+    }
+
     companion object {
         fun broken() = IndexState(
             eventsCount = -1L,

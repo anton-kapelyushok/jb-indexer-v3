@@ -144,12 +144,9 @@ private suspend fun runCmdHandler(
                 val query = prompt.substring("find ".length)
                 val job = launch {
 
-                    val initialStatus = searchEngine.indexState()
-                    val showInitialWarning =
-                        !initialStatus.allFileDiscovered
-                                || initialStatus.handledFileEvents != initialStatus.totalFileEvents
-                                || initialStatus.isBroken
-                    if (showInitialWarning) {
+                    val initialState = searchEngine.indexState()
+                    val isInSyncBeforeSearch = initialState.isInSync()
+                    if (!isInSyncBeforeSearch) {
                         println("Directory is not fully indexed yet, results might be incomplete or outdated")
                         println()
                     }
@@ -163,9 +160,9 @@ private suspend fun runCmdHandler(
                             println()
                         }
 
-                    if (!showInitialWarning) {
+                    if (isInSyncBeforeSearch) {
                         val currentStatus = searchEngine.indexState()
-                        if (initialStatus != currentStatus) {
+                        if (initialState != currentStatus) {
                             println("Directory content has changed during search, results might be incomplete or outdated")
                             println()
                         }

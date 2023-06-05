@@ -3,8 +3,8 @@ package indexer.core.internal
 import com.google.common.collect.Interner
 import com.google.common.collect.Interners
 import indexer.core.IndexConfig
-import indexer.core.IndexStatusUpdate
 import indexer.core.IndexState
+import indexer.core.IndexStatusUpdate
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -38,7 +38,7 @@ internal suspend fun index(
                         WatcherStarted -> index.handleWatcherStarted()
                         is FileUpdated -> index.handleFileUpdated()
                         AllFilesDiscovered -> index.handleAllFilesDiscovered()
-                        is WatcherFailed -> index.handleWatcherFailed(event.reason)
+                        is WatcherFailed -> index.handleWatcherFailed(event)
                     }
                 }
                 userRequests.onReceive { event ->
@@ -73,6 +73,8 @@ internal class IndexStateHolder(
     private val ctx: CoroutineContext,
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
+    private var logicalTimeOfLastWatcherReset = 0L
+
     private var handledEventsCount = 0L
     private val startTime = System.currentTimeMillis()
     private var lastRestartTime = System.currentTimeMillis()
@@ -151,6 +153,9 @@ internal class IndexStateHolder(
         allFilesDiscovered = true
         cfg.debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
         emitStatusUpdate(IndexStatusUpdate.AllFilesDiscovered(allFilesDiscoveredTime, status()))
+        if (handledFileEvents == totalFileEvents) {
+            emitStatusUpdate(IndexStatusUpdate.IndexInSync(allFilesDiscoveredTime, status()))
+        }
     }
 
     suspend fun handleFileUpdated() {
@@ -176,7 +181,7 @@ internal class IndexStateHolder(
         reverseIndex.clear()
     }
 
-    suspend fun handleWatcherFailed(reason: Throwable) {
+    suspend fun handleWatcherFailed(event: WatcherFailed) {
         handledEventsCount++
         watcherStarted = false
         allFilesDiscovered = false
@@ -188,7 +193,7 @@ internal class IndexStateHolder(
         totalFileEvents = 0L
         handledFileEvents = 0L
 
-        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), reason))
+        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseWatcherFailed(System.currentTimeMillis(), event.reason))
     }
 
     private suspend fun handleFileEventHandled() {
@@ -204,6 +209,7 @@ internal class IndexStateHolder(
     }
 
     private fun checkUpdateTime(eventTime: Long, fa: FileAddress): Unit? {
+        if (eventTime < logicalTimeOfLastWatcherReset) return null
         val lastUpdate = fileUpdateTimes[fa] ?: 0L
         if (lastUpdate > eventTime) return null
         fileUpdateTimes[fa] = eventTime

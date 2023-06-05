@@ -16,7 +16,7 @@ fun CoroutineScope.launchIndex(
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileEvents = Channel<FileEvent>(Int.MAX_VALUE)
     val statusFlow = MutableSharedFlow<IndexStatusUpdate>(
-        replay = 1,
+        replay = 16, // is enough for everyone
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     statusFlow.tryEmit(IndexStatusUpdate.Initializing(System.currentTimeMillis()))
