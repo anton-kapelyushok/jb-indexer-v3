@@ -72,29 +72,24 @@ internal class IndexStateHolder(
     private val ctx: CoroutineContext,
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
+    // inverted index data
+    private var invertedIndexData = ConcurrentHashMap<String, IntArrayList>()
+    private var lastFaRef = 0
+    private var fileAddressByFileRef = mutableMapOf<Int, FileAddress>()
+    private var fileRefByFileAddress = mutableMapOf<FileAddress, Int>()
+    private var entriesCountByFileRef = Int2IntOpenHashMap()
+    private var aliveEntries = 0
+    private var totalEntries = 0
 
-    private var reverseIndex = ConcurrentHashMap<String, IntArrayList>()
-
+    // index manager data
     private var clock = 0L
-
     private var logicalTimeOfLastWatcherReset = 0L
-
     private val startTime = System.currentTimeMillis()
     private var lastRestartTime = System.currentTimeMillis()
     private var watcherStarted: Boolean = false
     private var allFilesDiscovered: Boolean = false
     private var syncCompleted: Boolean = false
-
     private val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
-
-    private var aliveEntries = 0
-    private var totalEntries = 0
-
-    private var lastFaRef = 0
-    private var fileAddressByFileRef = mutableMapOf<Int, FileAddress>()
-    private var fileRefByFileAddress = mutableMapOf<FileAddress, Int>()
-    private var entriesCountByFileRef = Int2IntOpenHashMap()
-
     private var filesDiscoveredByWatcherDuringInitialization = 0L
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
@@ -113,7 +108,7 @@ internal class IndexStateHolder(
         aliveEntries = aliveEntries - prevEntriesCount + event.tokens.size
         totalEntries += event.tokens.size
 
-        event.tokens.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntArrayList(1)).apply { add(faRef) } }
+        event.tokens.forEach { invertedIndexData[it] = (invertedIndexData[it] ?: IntArrayList(1)).apply { add(faRef) } }
 
         if (totalEntries != 0 && aliveEntries.toDouble() / totalEntries < 0.6) {
             println("compacting")
@@ -138,7 +133,7 @@ internal class IndexStateHolder(
         val result = event.result
 
         result.complete(
-            (reverseIndex[event.query]?.mapNotNull { fileAddressByFileRef[it] } ?: listOf())
+            (invertedIndexData[event.query]?.mapNotNull { fileAddressByFileRef[it] } ?: listOf())
         )
     }
 
@@ -146,7 +141,7 @@ internal class IndexStateHolder(
     suspend fun handleFindTokensMatchingPredicate(event: FindTokensMatchingPredicateRequest) {
         val result = event.result
         result.complete(
-            (reverseIndex.keys.filter { event.matches(it) })
+            (invertedIndexData.keys.filter { event.matches(it) })
         )
     }
 
@@ -186,7 +181,7 @@ internal class IndexStateHolder(
 
     suspend fun handleComplete() {
         clock++
-        reverseIndex.clear()
+        invertedIndexData.clear()
     }
 
     suspend fun handleFileSyncFailed(event: FileSyncFailed) {
@@ -195,7 +190,7 @@ internal class IndexStateHolder(
         allFilesDiscovered = false
         lastRestartTime = System.currentTimeMillis()
         fileUpdateTimes.clear()
-        reverseIndex.clear()
+        invertedIndexData.clear()
         filesDiscoveredByWatcherDuringInitialization = 0L
         totalFileEvents = 0L
         handledFileEvents = 0L
@@ -269,7 +264,7 @@ internal class IndexStateHolder(
         println("4 ${System.currentTimeMillis() - start}ms")
 
 
-        val copyOfKeys = reverseIndex.keys.toList()
+        val copyOfKeys = invertedIndexData.keys.toList()
         println("5 ${System.currentTimeMillis() - start}ms")
         val chunksCount = Runtime.getRuntime().availableProcessors()
         val chunkSize = copyOfKeys.size / chunksCount + 1
@@ -279,11 +274,11 @@ internal class IndexStateHolder(
                 launch(Dispatchers.Default) {
                     for (j in chunkSize * i until minOf(chunkSize * (i + 1), copyOfKeys.size)) {
                         val key = copyOfKeys[j]
-                        val newData = reverseIndex[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
+                        val newData = invertedIndexData[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
                         if (newData.isEmpty) {
-                            reverseIndex.remove(key)
+                            invertedIndexData.remove(key)
                         } else {
-                            reverseIndex[key] = newData
+                            invertedIndexData[key] = newData
                         }
                     }
                 }
@@ -296,8 +291,8 @@ internal class IndexStateHolder(
 
     private fun status() = IndexState(
         clock = clock,
-        indexedFiles = 0,
-        knownTokens = reverseIndex.size,
+        indexedFiles = fileAddressByFileRef.size,
+        knownTokens = invertedIndexData.size,
         watcherStarted = watcherStarted,
         allFileDiscovered = allFilesDiscovered,
         handledFileEvents = handledFileEvents,
