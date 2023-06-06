@@ -2,6 +2,8 @@ package indexer.core.internal
 
 import indexer.core.IndexSearchResult
 import indexer.core.IndexState
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 

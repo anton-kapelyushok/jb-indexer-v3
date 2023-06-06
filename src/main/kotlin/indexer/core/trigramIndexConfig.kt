@@ -14,6 +14,17 @@ fun trigramIndexConfig(
 
     override fun tokenize(line: String): List<String> {
         return line.lowercase().windowed(3)
+
+
+//            .map {
+//            val chars = it.toCharArray()
+//            val c0 = chars[0].code
+//            val c1 = chars[1].code
+//            val c2 = chars[2].code
+//
+//
+//            (c0.toLong() shl 16 * 2) + (c1 shl 16 * 1) + c2
+//        }
     }
 
     override fun find(
@@ -43,7 +54,9 @@ fun trigramIndexConfig(
             }
         }
 
-        val searchTokens = tokenize(query).toList()
+//        val searchTokens = tokenize(query).toList()
+        val searchTokens = listOf<String>()
+
         searchTokens.map { reverseIndex[it] ?: setOf() }.minBy { it.size }
             .asSequence()
             .takeWhile { isActive() }

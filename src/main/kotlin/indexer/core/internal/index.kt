@@ -5,14 +5,15 @@ import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
-import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import it.unimi.dsi.fastutil.ints.Int2IntArrayMap
+import it.unimi.dsi.fastutil.ints.IntArrayList
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.selects.select
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
@@ -74,8 +75,8 @@ internal class IndexStateHolder(
     private val ctx: CoroutineContext,
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
-    private val forwardIndex = Int2ObjectOpenHashMap<IntOpenHashSet>()
-    private val reverseIndex = Int2ObjectOpenHashMap<IntOpenHashSet>()
+
+    private val reverseIndex = mutableMapOf<String, IntArrayList>()
 
     private var clock = 0L
 
@@ -94,7 +95,7 @@ internal class IndexStateHolder(
     private val stringRefs = WeakHashMap<String, Int>()
 
     private var lastFaRef = 0
-    private val faRefs = WeakHashMap<String, Int>()
+    private val faRefs = mutableMapOf<Int, String>()
 
     private var filesDiscoveredByWatcherDuringInitialization = 0L
     private var totalFileEvents = 0L
@@ -109,22 +110,11 @@ internal class IndexStateHolder(
 
         checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
-        val tokens = event.tokens.map { token -> tokenInterner.intern(token) }
-        val tokensArray = tokens
-            .map { stringRefs.computeIfAbsent(it) { ++lastStringRef } }
-            .toIntArray()
-            .let { IntOpenHashSet(it) }
+        val tokensArray = event.tokens
+        val faRef = lastFaRef++
+//        faRefs[faRef] = fa.path
 
-        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
-
-        forwardIndex[faRef]?.let { prevTokens ->
-            prevTokens.forEach {
-                reverseIndex[it]?.remove(faRef)
-            }
-        }
-
-        forwardIndex[faRef] = tokensArray
-        tokensArray.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntOpenHashSet()).apply { add(faRef) } }
+        tokensArray.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntArrayList(1)).apply { add(faRef) } }
     }
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
@@ -136,13 +126,7 @@ internal class IndexStateHolder(
 
         checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
-        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
-        forwardIndex[faRef]?.let { prevTokens ->
-            prevTokens.forEach {
-                reverseIndex[it]?.remove(faRef)
-            }
-        }
-        forwardIndex.remove(faRef)
+//        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
     }
 
     suspend fun handleStatusRequest(event: StatusRequest) {
@@ -154,7 +138,6 @@ internal class IndexStateHolder(
 
         val indexContext = coroutineContext
 
-        forwardIndex.keys.toSet()
         reverseIndex.keys.toSet()
 
         val flow = flow<FileAddress> {
@@ -202,7 +185,6 @@ internal class IndexStateHolder(
 
     suspend fun handleComplete() {
         clock++
-        forwardIndex.clear()
         reverseIndex.clear()
     }
 
@@ -212,7 +194,6 @@ internal class IndexStateHolder(
         allFilesDiscovered = false
         lastRestartTime = System.currentTimeMillis()
         fileUpdateTimes.clear()
-        forwardIndex.clear()
         reverseIndex.clear()
         filesDiscoveredByWatcherDuringInitialization = 0L
         totalFileEvents = 0L
@@ -248,7 +229,7 @@ internal class IndexStateHolder(
 
     private fun status() = IndexState(
         clock = clock,
-        indexedFiles = forwardIndex.size,
+        indexedFiles = 0,
         knownTokens = reverseIndex.size,
         watcherStarted = watcherStarted,
         allFileDiscovered = allFilesDiscovered,

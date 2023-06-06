@@ -2,6 +2,8 @@ package indexer.core.internal
 
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventType.*
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
@@ -39,7 +41,7 @@ private suspend fun handleUpdated(
         try {
             if (path.fileSize() > 10_000_000L) {
                 // file too large, skip
-                indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, emptySet(), event.source))
+                indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, setOf(), event.source))
                 return@withContext
             }
 
@@ -49,7 +51,7 @@ private suspend fun handleUpdated(
 
             indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, tokens, event.source))
         } catch (e: IOException) {
-            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, emptySet(), event.source))
+            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, setOf(), event.source))
             cfg.debugLog("Failed to read ${event.fileAddress}: $e")
         }
     }
