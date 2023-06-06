@@ -2,6 +2,8 @@ package indexer.core.internal
 
 import indexer.core.IndexConfig
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 /**
  * Invokes `close` on coroutine cancellation
@@ -38,4 +40,12 @@ internal suspend fun CoroutineScope.invokeOnCancellation(close: suspend () -> Un
 
 internal fun IndexConfig.debugLog(str: String) {
     if (enableLogging.get()) println(str)
+}
+
+internal fun <T> Flow<T>.distinct(): Flow<T> = flow {
+    val past = mutableSetOf<T>()
+    collect {
+        val isNew = past.add(it)
+        if (isNew) emit(it)
+    }
 }

@@ -17,7 +17,7 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
         when (val e = index.getCompletionExceptionOrNull()) {
             null -> throw IllegalStateException("Underlying index completed")
             is CancellationException -> throw IllegalStateException("Underlying index was canceled", e)
-            else -> throw java.lang.IllegalStateException("Underlying index failed with exception", e)
+            else -> IllegalStateException("Underlying index failed with exception", e)
         }
     }
 
@@ -33,6 +33,7 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
         override suspend fun find(query: String): Flow<IndexSearchResult> {
             return withSearchEngineContext {
                 cfg.find(query, index)
+                    .distinct()
                     .buffer(Int.MAX_VALUE)
                     .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
             } ?: flowOf()
