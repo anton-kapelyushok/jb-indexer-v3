@@ -5,13 +5,14 @@ import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.selects.select
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
@@ -73,8 +74,8 @@ internal class IndexStateHolder(
     private val ctx: CoroutineContext,
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
-    private val forwardIndex = ConcurrentHashMap<FileAddress, MutableSet<String>>()
-    private val reverseIndex = ConcurrentHashMap<String, MutableSet<FileAddress>>()
+    private val forwardIndex = Int2ObjectOpenHashMap<IntOpenHashSet>()
+    private val reverseIndex = Int2ObjectOpenHashMap<IntOpenHashSet>()
 
     private var clock = 0L
 
@@ -86,8 +87,14 @@ internal class IndexStateHolder(
     private var allFilesDiscovered: Boolean = false
     private var syncCompleted: Boolean = false
 
-    private val tokenInterner: Interner<String> = Interners.newWeakInterner()
     private val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
+
+    private val tokenInterner: Interner<String> = Interners.newWeakInterner()
+    private var lastStringRef = 0
+    private val stringRefs = WeakHashMap<String, Int>()
+
+    private var lastFaRef = 0
+    private val faRefs = WeakHashMap<String, Int>()
 
     private var filesDiscoveredByWatcherDuringInitialization = 0L
     private var totalFileEvents = 0L
@@ -103,13 +110,21 @@ internal class IndexStateHolder(
         checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
         val tokens = event.tokens.map { token -> tokenInterner.intern(token) }
+        val tokensArray = tokens
+            .map { stringRefs.computeIfAbsent(it) { ++lastStringRef } }
+            .toIntArray()
+            .let { IntOpenHashSet(it) }
 
-        forwardIndex[fa]?.let { prevTokens ->
-            prevTokens.forEach { reverseIndex[it]?.remove(fa) }
+        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
+
+        forwardIndex[faRef]?.let { prevTokens ->
+            prevTokens.forEach {
+                reverseIndex[it]?.remove(faRef)
+            }
         }
 
-        forwardIndex[fa] = ConcurrentHashMap.newKeySet<String>().apply { addAll(tokens) }
-        tokens.forEach { reverseIndex[it] = (reverseIndex[it] ?: ConcurrentHashMap.newKeySet()).apply { add(fa) } }
+        forwardIndex[faRef] = tokensArray
+        tokensArray.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntOpenHashSet()).apply { add(faRef) } }
     }
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
@@ -121,10 +136,13 @@ internal class IndexStateHolder(
 
         checkLaterEventAlreadyHandled(event.t, fa) ?: return
 
-        forwardIndex[fa]?.let { prevTokens ->
-            prevTokens.forEach { reverseIndex[it]?.remove(fa) }
+        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
+        forwardIndex[faRef]?.let { prevTokens ->
+            prevTokens.forEach {
+                reverseIndex[it]?.remove(faRef)
+            }
         }
-        forwardIndex.remove(fa)
+        forwardIndex.remove(faRef)
     }
 
     suspend fun handleStatusRequest(event: StatusRequest) {
@@ -136,11 +154,14 @@ internal class IndexStateHolder(
 
         val indexContext = coroutineContext
 
-        val flow = flow {
+        forwardIndex.keys.toSet()
+        reverseIndex.keys.toSet()
+
+        val flow = flow<FileAddress> {
             val consumerContext = coroutineContext
-            cfg.find(event.query, forwardIndex, reverseIndex) { indexContext.isActive && consumerContext.isActive }
-                .distinct()
-                .forEach { emit(it) }
+//            cfg.find(event.query, forwardIndex, reverseIndex) { indexContext.isActive && consumerContext.isActive }
+//                .distinct()
+//                .forEach { emit(it) }
         }
         result.complete(flow)
     }
