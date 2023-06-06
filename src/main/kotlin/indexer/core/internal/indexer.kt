@@ -2,8 +2,6 @@ package indexer.core.internal
 
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventType.*
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.SendChannel
@@ -16,7 +14,7 @@ import kotlin.io.path.readLines
 internal suspend fun indexer(
     cfg: IndexConfig,
     watchEvents: ReceiveChannel<FileSyncEvent>,
-    indexUpdateRequests: SendChannel<IndexUpdateRequest>
+    indexUpdateRequests: SendChannel<FileUpdateRequest>
 ) {
     for (event in watchEvents) {
         cfg.debugLog("indexer: $event")
@@ -27,14 +25,14 @@ internal suspend fun indexer(
     }
 }
 
-private suspend fun handleRemoved(event: FileSyncEvent, indexUpdateRequests: SendChannel<IndexUpdateRequest>) {
+private suspend fun handleRemoved(event: FileSyncEvent, indexUpdateRequests: SendChannel<FileUpdateRequest>) {
     indexUpdateRequests.send(RemoveFileRequest(event.t, event.fileAddress, event.source))
 }
 
 private suspend fun handleUpdated(
     cfg: IndexConfig,
     event: FileSyncEvent,
-    indexUpdateRequests: SendChannel<IndexUpdateRequest>
+    indexUpdateRequests: SendChannel<FileUpdateRequest>
 ) {
     withContext(Dispatchers.IO) {
         val path = Path(event.fileAddress.path)
@@ -53,6 +51,8 @@ private suspend fun handleUpdated(
         } catch (e: IOException) {
             indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, setOf(), event.source))
             cfg.debugLog("Failed to read ${event.fileAddress}: $e")
+        } catch (e: Throwable) {
+            throw e
         }
     }
 }

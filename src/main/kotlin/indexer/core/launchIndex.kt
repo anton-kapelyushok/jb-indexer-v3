@@ -12,7 +12,7 @@ fun CoroutineScope.launchIndex(
     cfg: IndexConfig,
 ): Index {
     val userRequests = Channel<UserRequest>()
-    val indexUpdateRequests = Channel<IndexUpdateRequest>()
+    val indexUpdateRequests = Channel<FileUpdateRequest>()
     val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
     val fileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
     val statusFlow = MutableSharedFlow<IndexStatusUpdate>(
@@ -59,16 +59,16 @@ fun CoroutineScope.launchIndex(
             }
         }
 
-        override suspend fun findFileCandidates(query: String): Flow<FileAddress> {
+        override suspend fun findFilesByToken(query: String): List<FileAddress> {
             return withIndexContext {
-                val result = CompletableDeferred<Flow<FileAddress>>()
-                val request = FindRequest(
+                val result = CompletableDeferred<List<FileAddress>>()
+                val request = FindFilesByTokenRequest(
                     query = query,
                     result = result,
                 )
                 userRequests.send(request)
                 result.await()
-            } ?: flowOf()
+            } ?: listOf()
         }
 
         // future.await() may get stuck if index gets canceled while message is inflight

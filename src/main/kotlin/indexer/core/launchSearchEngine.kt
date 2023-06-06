@@ -32,7 +32,17 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
 
         override suspend fun find(query: String): Flow<IndexSearchResult> {
             return withSearchEngineContext {
-                index.findFileCandidates(query)
+                flow<FileAddress> {
+                    val tokens = cfg.tokenize(query)
+                    if (tokens.isEmpty()) return@flow
+                    var fileSet = index.findFilesByToken(tokens[0]).toSet()
+                    for (i in 1 until tokens.size) {
+                        if (fileSet.isEmpty()) break
+                        val newFiles = index.findFilesByToken(tokens[i]).toSet()
+                        fileSet = fileSet.intersect(newFiles)
+                    }
+                    for (f in fileSet) emit(f)
+                }
                     .buffer(Int.MAX_VALUE)
                     .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
             } ?: flowOf()

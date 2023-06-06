@@ -83,6 +83,7 @@ internal suspend fun emitInitialContent(
                     .asSequence()
                     .filter { it.isRegularFile() }
                     .forEach {
+                        ensureActive()
                         statusUpdates.send(FileUpdated(INITIAL_SYNC))
                         fileSyncEvents.send(
                             FileSyncEvent(

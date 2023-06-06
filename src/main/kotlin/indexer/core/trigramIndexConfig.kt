@@ -2,6 +2,7 @@ package indexer.core
 
 import indexer.core.internal.FileAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 fun trigramIndexConfig(
     enableWatcher: Boolean = true,
@@ -11,6 +12,8 @@ fun trigramIndexConfig(
     override val enableLogging = AtomicBoolean(false)
 
     override val enableWatcher: Boolean = enableWatcher
+
+    var i = AtomicInteger(0)
 
     override fun tokenize(line: String): List<String> {
         return line.lowercase().windowed(3)

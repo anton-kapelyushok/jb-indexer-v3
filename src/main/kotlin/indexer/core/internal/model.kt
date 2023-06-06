@@ -2,10 +2,7 @@ package indexer.core.internal
 
 import indexer.core.IndexSearchResult
 import indexer.core.IndexState
-import it.unimi.dsi.fastutil.ints.IntOpenHashSet
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.flow.Flow
 
 internal enum class FileEventSource {
     INITIAL_SYNC,
@@ -32,14 +29,14 @@ internal object AllFilesDiscovered : StatusUpdate
 internal object WatcherDiscoveredFileDuringInitialization : StatusUpdate
 internal data class FileUpdated(val source: FileEventSource) : StatusUpdate
 
-internal sealed interface IndexUpdateRequest
+internal sealed interface FileUpdateRequest
 
 internal data class UpdateFileContentRequest(
     val t: Long,
     val fileAddress: FileAddress,
     val tokens: Set<String>,
     val source: FileEventSource,
-) : IndexUpdateRequest {
+) : FileUpdateRequest {
     override fun toString(): String {
         return "UpdateFileContentRequest(t=$t, tokens=${tokens.size}, fileAddress=$fileAddress, source=$source)"
     }
@@ -49,13 +46,13 @@ internal data class RemoveFileRequest(
     val t: Long,
     val fileAddress: FileAddress,
     val source: FileEventSource,
-) : IndexUpdateRequest
+) : FileUpdateRequest
 
 internal sealed interface UserRequest
 
-internal data class FindRequest(
+internal data class FindFilesByTokenRequest(
     val query: String,
-    val result: CompletableDeferred<Flow<FileAddress>>,
+    val result: CompletableDeferred<List<FileAddress>>,
 ) : UserRequest
 
 internal data class StatusRequest(

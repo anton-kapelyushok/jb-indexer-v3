@@ -1,28 +1,24 @@
 package indexer.core.internal
 
-import com.google.common.collect.Interner
-import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
-import it.unimi.dsi.fastutil.ints.Int2IntArrayMap
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap
 import it.unimi.dsi.fastutil.ints.IntArrayList
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.selects.select
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
 
 data class FileAddress(val path: String)
 
 internal suspend fun index(
     cfg: IndexConfig,
     userRequests: ReceiveChannel<UserRequest>,
-    indexUpdateRequests: ReceiveChannel<IndexUpdateRequest>,
+    indexUpdateRequests: ReceiveChannel<FileUpdateRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
     indexStatusUpdate: MutableSharedFlow<IndexStatusUpdate>,
 ) = coroutineScope {
@@ -46,7 +42,7 @@ internal suspend fun index(
                 userRequests.onReceive { event ->
                     cfg.debugLog("userRequests: $event")
                     when (event) {
-                        is FindRequest -> index.handleFindRequest(event)
+                        is FindFilesByTokenRequest -> index.handleFindFileByTokenRequest(event)
                         is StatusRequest -> index.handleStatusRequest(event)
                     }
                 }
@@ -76,7 +72,7 @@ internal class IndexStateHolder(
     private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
 ) {
 
-    private val reverseIndex = mutableMapOf<String, IntArrayList>()
+    private var reverseIndex = ConcurrentHashMap<String, IntArrayList>()
 
     private var clock = 0L
 
@@ -90,63 +86,59 @@ internal class IndexStateHolder(
 
     private val fileUpdateTimes = WeakHashMap<FileAddress, Long>()
 
-    private val tokenInterner: Interner<String> = Interners.newWeakInterner()
-    private var lastStringRef = 0
-    private val stringRefs = WeakHashMap<String, Int>()
+    private var aliveEntries = 0
+    private var totalEntries = 0
 
     private var lastFaRef = 0
-    private val faRefs = mutableMapOf<Int, String>()
+    private var fileAddressByFileRef = mutableMapOf<Int, FileAddress>()
+    private var fileRefByFileAddress = mutableMapOf<FileAddress, Int>()
+    private var entriesCountByFileRef = Int2IntOpenHashMap()
 
     private var filesDiscoveredByWatcherDuringInitialization = 0L
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
 
     suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
-        clock++
-        checkEventHappenedAfterReset(event.t) ?: return
-        handleFileEventHandled()
-
+        handleFileSyncEvent(event.t, event.fileAddress) ?: return
         val fa = event.fileAddress
 
-        checkLaterEventAlreadyHandled(event.t, fa) ?: return
+        val prevEntriesCount = removePreviousFileRef(fa)
 
-        val tokensArray = event.tokens
         val faRef = lastFaRef++
-//        faRefs[faRef] = fa.path
+        fileAddressByFileRef[faRef] = fa
+        fileRefByFileAddress[fa] = faRef
+        entriesCountByFileRef[faRef] = event.tokens.size
 
-        tokensArray.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntArrayList(1)).apply { add(faRef) } }
+        aliveEntries = aliveEntries - prevEntriesCount + event.tokens.size
+        totalEntries += event.tokens.size
+
+        event.tokens.forEach { reverseIndex[it] = (reverseIndex[it] ?: IntArrayList(1)).apply { add(faRef) } }
+
+        if (totalEntries != 0 && aliveEntries.toDouble() / totalEntries < 0.6) {
+            println("compacting")
+            compact()
+        }
     }
 
     suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
-        clock++
-        checkEventHappenedAfterReset(event.t) ?: return
-        handleFileEventHandled()
+        handleFileSyncEvent(event.t, event.fileAddress) ?: return
 
         val fa = event.fileAddress
 
-        checkLaterEventAlreadyHandled(event.t, fa) ?: return
-
-//        val faRef = faRefs.computeIfAbsent(fa.path) { ++lastFaRef }
+        val prevEntriesCount = removePreviousFileRef(fa)
+        aliveEntries -= prevEntriesCount
     }
 
     suspend fun handleStatusRequest(event: StatusRequest) {
         event.result.complete(status())
     }
 
-    suspend fun handleFindRequest(event: FindRequest) {
+    suspend fun handleFindFileByTokenRequest(event: FindFilesByTokenRequest) {
         val result = event.result
 
-        val indexContext = coroutineContext
-
-        reverseIndex.keys.toSet()
-
-        val flow = flow<FileAddress> {
-            val consumerContext = coroutineContext
-//            cfg.find(event.query, forwardIndex, reverseIndex) { indexContext.isActive && consumerContext.isActive }
-//                .distinct()
-//                .forEach { emit(it) }
-        }
-        result.complete(flow)
+        result.complete(
+            (reverseIndex[event.query]?.mapNotNull { fileAddressByFileRef[it] } ?: listOf())
+        )
     }
 
     suspend fun handleWatcherStarted() {
@@ -200,10 +192,18 @@ internal class IndexStateHolder(
         handledFileEvents = 0L
         logicalTimeOfLastWatcherReset = event.t
 
-        emitStatusUpdate(IndexStatusUpdate.ReinitializingBecauseFileSyncFailed(System.currentTimeMillis(), event.reason))
+        emitStatusUpdate(
+            IndexStatusUpdate.ReinitializingBecauseFileSyncFailed(
+                System.currentTimeMillis(),
+                event.reason
+            )
+        )
     }
 
-    private suspend fun handleFileEventHandled() {
+    private suspend fun handleFileSyncEvent(t: Long, fa: FileAddress): Unit? {
+        clock++
+        checkEventHappenedAfterReset(t) ?: return null
+
         handledFileEvents++
         if (allFilesDiscovered && handledFileEvents == totalFileEvents) {
             if (!syncCompleted) {
@@ -213,6 +213,10 @@ internal class IndexStateHolder(
             }
             emitStatusUpdate(IndexStatusUpdate.IndexInSync(System.currentTimeMillis(), status()))
         }
+
+        checkLaterEventAlreadyHandled(t, fa) ?: return null
+
+        return Unit
     }
 
     private fun checkEventHappenedAfterReset(eventTime: Long): Unit? {
@@ -225,6 +229,55 @@ internal class IndexStateHolder(
         if (eventTime < lastUpdate) return null
         fileUpdateTimes[fa] = eventTime
         return Unit
+    }
+
+    private fun removePreviousFileRef(fa: FileAddress): Int {
+        val prevRef = fileRefByFileAddress[fa]
+        var prevEntriesCount = 0
+        if (prevRef != null) {
+            fileAddressByFileRef.remove(prevRef)
+            fileRefByFileAddress.remove(fa)
+            prevEntriesCount = entriesCountByFileRef.remove(prevRef)
+        }
+        return prevEntriesCount
+    }
+
+    private suspend fun compact() {
+        val remappedKeys = mutableMapOf<Int, Int>()
+        var lastKey = 1
+        val start = System.currentTimeMillis()
+        fileAddressByFileRef.keys.forEach { key ->
+            remappedKeys[key] = lastKey++
+        }
+        println("1 ${System.currentTimeMillis() - start}ms")
+
+        lastFaRef = lastKey
+        fileAddressByFileRef = fileAddressByFileRef.mapKeys { (k, _) -> remappedKeys[k]!! }.toMutableMap()
+        println("2 ${System.currentTimeMillis() - start}ms")
+        fileRefByFileAddress = fileRefByFileAddress.mapValues { (_, v) -> remappedKeys[v]!! }.toMutableMap()
+        println("3 ${System.currentTimeMillis() - start}ms")
+        entriesCountByFileRef = entriesCountByFileRef.mapKeysTo(Int2IntOpenHashMap()) { (k, _) -> remappedKeys[k] }
+        println("4 ${System.currentTimeMillis() - start}ms")
+
+
+        val copyOfKeys = reverseIndex.keys.toList()
+        println("5 ${System.currentTimeMillis() - start}ms")
+        val chunksCount = Runtime.getRuntime().availableProcessors()
+        val chunkSize = copyOfKeys.size / chunksCount + 1
+        println("available processors $chunksCount")
+        coroutineScope {
+            for (i in 0 until chunksCount) {
+                launch(Dispatchers.Default) {
+                    for (j in chunkSize * i until minOf(chunkSize * (i + 1), copyOfKeys.size)) {
+                        val key = copyOfKeys[j]
+                        reverseIndex[key] = reverseIndex[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
+                    }
+                }
+            }
+        }
+
+        totalEntries = aliveEntries
+        println("6 ${System.currentTimeMillis() - start}ms")
     }
 
     private fun status() = IndexState(
