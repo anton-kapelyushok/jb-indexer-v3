@@ -90,9 +90,13 @@ fun wordIndexConfig(
 
                 fileSet.forEach { emit(it) }
 
-                // it is probably not worth it to check head and tail
-                // val startToken = searchTokens.first()
-                // val endToken = searchTokens.last()
+                val startToken = searchTokens.first()
+                val endToken = searchTokens.last()
+                val startFiles = index.findFilesByToken(startToken).toSet()
+                val endFiles = index.findFilesByToken(endToken).toSet()
+                fileSet.intersect(startFiles).intersect(endFiles).forEach { emit(it) }
+                fileSet.intersect(startFiles).forEach { emit(it) }
+                fileSet.intersect(endFiles).forEach { emit(it) }
             }
         }
     }
