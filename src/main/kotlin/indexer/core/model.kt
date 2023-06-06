@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
     suspend fun findFilesByToken(query: String): List<FileAddress>
+    suspend fun findTokensMatchingPredicate(predicate: (token: String) -> Boolean): List<String>
     suspend fun state(): IndexState
     suspend fun statusFlow(): Flow<IndexStatusUpdate>
 }
@@ -28,12 +29,10 @@ interface IndexConfig {
     fun tokenize(line: String): List<String>
 
     // returns possible files that match query
-    fun find(
+    suspend fun find(
         query: String,
-        forwardIndex: Map<FileAddress, Set<String>>,
-        reverseIndex: Map<String, Set<FileAddress>>,
-        isActive: () -> Boolean,
-    ): Sequence<FileAddress>
+        index: Index,
+    ): Flow<FileAddress>
 
     // determines if line matches query
     fun matches(line: String, query: String): Boolean

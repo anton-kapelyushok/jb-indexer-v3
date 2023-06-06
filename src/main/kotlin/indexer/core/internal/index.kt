@@ -44,6 +44,7 @@ internal suspend fun index(
                     when (event) {
                         is FindFilesByTokenRequest -> index.handleFindFileByTokenRequest(event)
                         is StatusRequest -> index.handleStatusRequest(event)
+                        is FindTokensMatchingPredicateRequest -> index.handleFindTokensMatchingPredicate(event)
                     }
                 }
                 indexUpdateRequests.onReceive { event ->
@@ -138,6 +139,14 @@ internal class IndexStateHolder(
 
         result.complete(
             (reverseIndex[event.query]?.mapNotNull { fileAddressByFileRef[it] } ?: listOf())
+        )
+    }
+
+
+    suspend fun handleFindTokensMatchingPredicate(event: FindTokensMatchingPredicateRequest) {
+        val result = event.result
+        result.complete(
+            (reverseIndex.keys.filter { event.matches(it) })
         )
     }
 

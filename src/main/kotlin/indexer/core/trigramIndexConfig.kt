@@ -1,8 +1,11 @@
 package indexer.core
 
 import indexer.core.internal.FileAddress
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.flow
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.coroutineContext
 
 fun trigramIndexConfig(
     enableWatcher: Boolean = true,
@@ -30,48 +33,44 @@ fun trigramIndexConfig(
 //        }
     }
 
-    override fun find(
+    override suspend fun find(
         query: String,
-        forwardIndex: Map<FileAddress, Set<String>>,
-        reverseIndex: Map<String, Set<FileAddress>>,
-        isActive: () -> Boolean,
-    ) = sequence {
+        index: Index,
+    ) = flow<FileAddress> {
         when (query.length) {
             0 -> {
                 // everything matches
-                forwardIndex.keys.asSequence()
-                    .takeWhile { isActive() }
-                    .forEach { yield(it) }
-                return@sequence
+                val tokens = index.findTokensMatchingPredicate { true }
+                tokens
+                    .onEach { coroutineContext.ensureActive() }
+                    .flatMap { index.findFilesByToken(it) }
+                    .distinct()
+                    .forEach { emit(it) }
+
+                return@flow
             }
 
             1, 2 -> {
                 // files with trigrams containing query match
-                reverseIndex.keys.asSequence()
-                    .takeWhile { isActive() }
-                    .filter { it.contains(query) }
-                    .flatMap { reverseIndex[it]?.asSequence() ?: sequenceOf() }
-                    .takeWhile { isActive() }
-                    .forEach { yield(it) }
-                return@sequence
+                index
+                    .findTokensMatchingPredicate { it.contains(query) }
+                    .onEach { coroutineContext.ensureActive() }
+                    .flatMap { index.findFilesByToken(it) }
+                    .distinct()
+                    .forEach { emit(it) }
+                return@flow
             }
         }
 
 //        val searchTokens = tokenize(query).toList()
-        val searchTokens = listOf<String>()
-
-        searchTokens.map { reverseIndex[it] ?: setOf() }.minBy { it.size }
-            .asSequence()
-            .takeWhile { isActive() }
-            .filter { fa ->
-                val fileTokens = forwardIndex[fa] ?: mutableSetOf()
-
-                val coreTokensMatch = searchTokens.all { it in fileTokens }
-                if (!coreTokensMatch) return@filter false
-                return@filter true
-            }
-            .takeWhile { isActive() }
-            .forEach { yield(it) }
+        val tokens = tokenize(query)
+        var fileSet = index.findFilesByToken(tokens[0]).toSet()
+        for (i in 1 until tokens.size) {
+            if (fileSet.isEmpty()) break
+            val newFiles = index.findFilesByToken(tokens[i]).toSet()
+            fileSet = fileSet.intersect(newFiles)
+        }
+        for (f in fileSet) emit(f)
     }
 
     override fun matches(line: String, query: String): Boolean {

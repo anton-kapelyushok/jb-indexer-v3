@@ -71,6 +71,18 @@ fun CoroutineScope.launchIndex(
             } ?: listOf()
         }
 
+        override suspend fun findTokensMatchingPredicate(predicate: (token: String) -> Boolean): List<String> {
+            return withIndexContext {
+                val result = CompletableDeferred<List<String>>()
+                val request = FindTokensMatchingPredicateRequest(
+                    matches = predicate,
+                    result = result
+                )
+                userRequests.send(request)
+                result.await()
+            } ?: listOf()
+        }
+
         // future.await() may get stuck if index gets canceled while message is inflight
         private suspend fun <T : Any> withIndexContext(
             block: suspend CoroutineScope.() -> T
