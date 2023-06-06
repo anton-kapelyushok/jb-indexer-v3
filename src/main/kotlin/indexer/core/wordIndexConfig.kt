@@ -88,7 +88,6 @@ fun wordIndexConfig(
                 }
                 if (fileSet.isEmpty()) return@flow
 
-                fileSet.forEach { emit(it) }
 
                 val startToken = searchTokens.first()
                 val endToken = searchTokens.last()
@@ -97,6 +96,7 @@ fun wordIndexConfig(
                 fileSet.intersect(startFiles).intersect(endFiles).forEach { emit(it) }
                 fileSet.intersect(startFiles).forEach { emit(it) }
                 fileSet.intersect(endFiles).forEach { emit(it) }
+                fileSet.forEach { emit(it) }
             }
         }
     }
