@@ -270,7 +270,12 @@ internal class IndexStateHolder(
                 launch(Dispatchers.Default) {
                     for (j in chunkSize * i until minOf(chunkSize * (i + 1), copyOfKeys.size)) {
                         val key = copyOfKeys[j]
-                        reverseIndex[key] = reverseIndex[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
+                        val newData = reverseIndex[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
+                        if (newData.isEmpty) {
+                            reverseIndex.remove(key)
+                        } else {
+                            reverseIndex[key] = newData
+                        }
                     }
                 }
             }
