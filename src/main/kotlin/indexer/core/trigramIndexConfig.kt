@@ -1,12 +1,14 @@
 package indexer.core
 
 import indexer.core.internal.FileAddress
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.coroutineContext
 
+@OptIn(ExperimentalCoroutinesApi::class)
 fun trigramIndexConfig(
     enableWatcher: Boolean = true,
     handleWatcherError: suspend (e: Throwable) -> Unit = {},
@@ -42,22 +44,24 @@ fun trigramIndexConfig(
                 // everything matches
                 val tokens = index.findTokensMatchingPredicate { true }
                 tokens
-                    .onEach { coroutineContext.ensureActive() }
-                    .flatMap { index.findFilesByToken(it) }
-                    .distinct()
-                    .forEach { emit(it) }
+                    .asFlow()
+                    .onEach { currentCoroutineContext().ensureActive() }
+                    .flatMapConcat { index.findFilesByToken(it).asFlow() }
+                    .collect { emit(it) }
 
                 return@flow
             }
 
             1, 2 -> {
                 // files with trigrams containing query match
-                index
+                val tokens = index
                     .findTokensMatchingPredicate { it.contains(query) }
-                    .onEach { coroutineContext.ensureActive() }
-                    .flatMap { index.findFilesByToken(it) }
-                    .distinct()
-                    .forEach { emit(it) }
+
+                tokens.asFlow()
+                    .onEach { currentCoroutineContext().ensureActive() }
+                    .flatMapConcat { index.findFilesByToken(it).asFlow() }
+                    .onEach { currentCoroutineContext().ensureActive() }
+                    .collect { emit(it) }
                 return@flow
             }
         }
