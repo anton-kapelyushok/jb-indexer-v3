@@ -66,7 +66,6 @@ class InvertedIndex(private val loadFactor: Double = 0.75) {
     fun compact() {
         val remappedKeys = mutableMapOf<Int, Int>()
         var lastKey = 1
-        val start = System.currentTimeMillis()
         fileAddressByFileRef.keys.forEach { key ->
             remappedKeys[key] = lastKey++
         }

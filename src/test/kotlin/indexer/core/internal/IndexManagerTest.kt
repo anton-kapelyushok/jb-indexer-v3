@@ -6,6 +6,7 @@ import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
+import indexer.core.test.fa
 import io.mockk.clearMocks
 import io.mockk.mockk
 import io.mockk.verify
@@ -260,6 +261,4 @@ class IndexManagerTest {
         handleStatusRequest(StatusRequest(result))
         return result.getCompleted()
     }
-
-    private fun fa(s: String) = FileAddress(s)
 }

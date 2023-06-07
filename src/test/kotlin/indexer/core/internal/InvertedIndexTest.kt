@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.containsExactlyInAnyOrder
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
+import indexer.core.test.fa
 import org.junit.jupiter.api.Test
 
 class InvertedIndexTest {
@@ -89,5 +90,4 @@ class InvertedIndexTest {
     }
 
     private fun createIndex(loadFactor: Double = 0.0) = InvertedIndex(loadFactor)
-    private fun fa(s: String) = FileAddress(s)
 }

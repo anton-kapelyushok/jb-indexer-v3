@@ -13,10 +13,10 @@ import kotlin.io.path.readLines
 
 internal suspend fun indexer(
     cfg: IndexConfig,
-    watchEvents: ReceiveChannel<FileSyncEvent>,
+    fileSyncEvents: ReceiveChannel<FileSyncEvent>,
     indexUpdateRequests: SendChannel<FileUpdateRequest>
 ) {
-    for (event in watchEvents) {
+    for (event in fileSyncEvents) {
         cfg.debugLog("indexer: $event")
         when (event.type) {
             CREATE, MODIFY -> handleUpdated(cfg, event, indexUpdateRequests)
