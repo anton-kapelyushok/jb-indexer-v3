@@ -39,8 +39,8 @@ class IndexerKtTest {
 
         val received = indexUpdateRequests.receive()
 
-        assertThat(received).isInstanceOf(RemoveFileRequest::class)
-        received as RemoveFileRequest
+        assertThat(received).isInstanceOf(FileUpdateRequest.RemoveFileRequest::class)
+        received as FileUpdateRequest.RemoveFileRequest
         assertThat(received.t).isEqualTo(10L)
         assertThat(received.fileAddress).isEqualTo(fa("doc1.txt"))
         job.cancel()
@@ -72,8 +72,8 @@ class IndexerKtTest {
             )
             val received = indexUpdateRequests.receive()
 
-            assertThat(received).isInstanceOf(UpdateFileContentRequest::class)
-            received as UpdateFileContentRequest
+            assertThat(received).isInstanceOf(FileUpdateRequest.UpdateFile::class)
+            received as FileUpdateRequest.UpdateFile
             assertThat(received.t).isEqualTo(10L)
             assertThat(received.fileAddress).isEqualTo(file.toFileAddress())
             assertThat(received.tokens).containsAll(*"volobuev gde tvoi mech a vot on".split(" ").toTypedArray())
@@ -98,8 +98,8 @@ class IndexerKtTest {
             )
             val received = indexUpdateRequests.receive()
 
-            assertThat(received).isInstanceOf(UpdateFileContentRequest::class)
-            received as UpdateFileContentRequest
+            assertThat(received).isInstanceOf(FileUpdateRequest.UpdateFile::class)
+            received as FileUpdateRequest.UpdateFile
             assertThat(received.t).isEqualTo(10L)
             assertThat(received.fileAddress).isEqualTo(file.toFileAddress())
             assertThat(received.tokens).isEmpty()

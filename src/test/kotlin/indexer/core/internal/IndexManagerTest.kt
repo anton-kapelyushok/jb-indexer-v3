@@ -44,7 +44,7 @@ class IndexManagerTest {
 
         // read 1 file
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(clock++, fa("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(clock++, fa("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         assertThat(indexManager.status().handledFileEvents).isEqualTo(1L)
         assertThat(indexManager.status().totalFileEvents).isEqualTo(2L)
@@ -52,7 +52,7 @@ class IndexManagerTest {
 
         // read 2 file
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(clock++, fa("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(clock++, fa("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         assertThat(indexManager.status().handledFileEvents).isEqualTo(2L)
         assertThat(indexManager.status().totalFileEvents).isEqualTo(2L)
@@ -72,7 +72,7 @@ class IndexManagerTest {
 
         // read 3 file, no more in flight - we are in sync
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(clock++, fa("doc3.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(clock++, fa("doc3.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         assertThat(indexManager.status().isInSync()).isEqualTo(true)
         assertThat(emittedEvents.size).isEqualTo(1)
@@ -86,7 +86,7 @@ class IndexManagerTest {
 
         // handled an update - in sync now
         indexManager.handleRemoveFileRequest(
-            RemoveFileRequest(clock++, fa("doc3.txt"), FileEventSource.WATCHER)
+            FileUpdateRequest.RemoveFileRequest(clock++, fa("doc3.txt"), FileEventSource.WATCHER)
         )
         assertThat(emittedEvents.size).isEqualTo(1)
         assertThat(emittedEvents.removeLast()).isInstanceOf(IndexStatusUpdate.IndexInSync::class)
@@ -104,14 +104,14 @@ class IndexManagerTest {
     fun `should ignore stale updates`() {
         val fa = FileAddress("doc1.txt")
         // t=1
-        indexManager.handleRemoveFileRequest(RemoveFileRequest(2L, fa, FileEventSource.WATCHER))
+        indexManager.handleRemoveFileRequest(FileUpdateRequest.RemoveFileRequest(2L, fa, FileEventSource.WATCHER))
         assertThat(indexManager.status().handledFileEvents).isEqualTo(1L)
         verify { invertedIndex.removeDocument(fa) }
         clearMocks(invertedIndex)
 
         // t=1 is less than t=2, ignore
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(1L, fa, setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(1L, fa, setOf(), FileEventSource.INITIAL_SYNC)
         )
         assertThat(indexManager.status().handledFileEvents).isEqualTo(2L)
         verify(exactly = 0) { invertedIndex.addOrUpdateDocument(fa, any()) }
@@ -119,7 +119,7 @@ class IndexManagerTest {
 
         // t=3 is greater than t=2, handle
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(3L, fa, setOf(), FileEventSource.WATCHER)
+            FileUpdateRequest.UpdateFile(3L, fa, setOf(), FileEventSource.WATCHER)
         )
         assertThat(indexManager.status().handledFileEvents).isEqualTo(3L)
         verify { invertedIndex.addOrUpdateDocument(fa, any()) }
@@ -172,11 +172,11 @@ class IndexManagerTest {
         indexManager.handleWatcherStarted()
         indexManager.handleFileUpdated()
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(1L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(1L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         indexManager.handleFileUpdated()
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(2L, FileAddress("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(2L, FileAddress("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         indexManager.handleAllFilesDiscovered()
         with(indexManager.status()) {
@@ -189,7 +189,7 @@ class IndexManagerTest {
         emittedEvents.clear()
 
         // watcher failed
-        indexManager.handleFileSyncFailed(FileSyncFailed(3L, IllegalStateException()))
+        indexManager.handleFileSyncFailed(StatusUpdate.FileSyncFailed(3L, IllegalStateException()))
         with(indexManager.status()) {
             assertThat(watcherStarted).isEqualTo(false)
             assertThat(allFileDiscovered).isEqualTo(false)
@@ -210,7 +210,7 @@ class IndexManagerTest {
 
         // event is not stale, handling it
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(1L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(1L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         verify { invertedIndex.addOrUpdateDocument(FileAddress("doc1.txt"), any()) }
         clearMocks(invertedIndex)
@@ -219,11 +219,11 @@ class IndexManagerTest {
         indexManager.handleAllFilesDiscovered()
 
         // watcher failed
-        indexManager.handleFileSyncFailed(FileSyncFailed(3L, IllegalStateException()))
+        indexManager.handleFileSyncFailed(StatusUpdate.FileSyncFailed(3L, IllegalStateException()))
 
         // stale event received
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(2L, FileAddress("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(2L, FileAddress("doc2.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         verify(exactly = 0) { invertedIndex.addOrUpdateDocument(any(), any()) }
         clearMocks(invertedIndex)
@@ -236,7 +236,7 @@ class IndexManagerTest {
 
         // event happened after FileSyncFailed
         indexManager.handleUpdateFileContentRequest(
-            UpdateFileContentRequest(4L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
+            FileUpdateRequest.UpdateFile(4L, FileAddress("doc1.txt"), setOf(), FileEventSource.INITIAL_SYNC)
         )
         verify { invertedIndex.addOrUpdateDocument(FileAddress("doc1.txt"), any()) }
         clearMocks(invertedIndex)

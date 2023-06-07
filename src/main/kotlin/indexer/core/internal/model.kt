@@ -22,31 +22,33 @@ internal data class FileSyncEvent(
     val type: FileEventType,
 )
 
-internal sealed interface StatusUpdate
-internal object WatcherStarted : StatusUpdate
-internal data class FileSyncFailed(val t: Long, val reason: Throwable) : StatusUpdate
-internal object AllFilesDiscovered : StatusUpdate
-internal object WatcherDiscoveredFileDuringInitialization : StatusUpdate
-internal data class FileUpdated(val source: FileEventSource) : StatusUpdate
-
-internal sealed interface FileUpdateRequest
-
-internal data class UpdateFileContentRequest(
-    val t: Long,
-    val fileAddress: FileAddress,
-    val tokens: Set<String>,
-    val source: FileEventSource,
-) : FileUpdateRequest {
-    override fun toString(): String {
-        return "UpdateFileContentRequest(t=$t, tokens=${tokens.size}, fileAddress=$fileAddress, source=$source)"
-    }
+internal sealed interface StatusUpdate {
+    object WatcherStarted : StatusUpdate
+    data class FileSyncFailed(val t: Long, val reason: Throwable) : StatusUpdate
+    object AllFilesDiscovered : StatusUpdate
+    object WatcherDiscoveredFileDuringInitialization : StatusUpdate
+    data class FileUpdated(val source: FileEventSource) : StatusUpdate
 }
 
-internal data class RemoveFileRequest(
-    val t: Long,
-    val fileAddress: FileAddress,
-    val source: FileEventSource,
-) : FileUpdateRequest
+internal sealed interface FileUpdateRequest {
+
+    data class UpdateFile(
+        val t: Long,
+        val fileAddress: FileAddress,
+        val tokens: Set<String>,
+        val source: FileEventSource,
+    ) : FileUpdateRequest {
+        override fun toString(): String {
+            return "UpdateFileContentRequest(t=$t, tokens=${tokens.size}, fileAddress=$fileAddress, source=$source)"
+        }
+    }
+
+    data class RemoveFileRequest(
+        val t: Long,
+        val fileAddress: FileAddress,
+        val source: FileEventSource,
+    ) : FileUpdateRequest
+}
 
 internal sealed interface UserRequest
 

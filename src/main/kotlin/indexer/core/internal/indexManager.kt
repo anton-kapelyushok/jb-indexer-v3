@@ -28,11 +28,11 @@ internal suspend fun indexManager(
                 statusUpdates.onReceive { event ->
                     debugLog("statusUpdates: $event")
                     when (event) {
-                        WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
-                        WatcherStarted -> index.handleWatcherStarted()
-                        is FileUpdated -> index.handleFileUpdated()
-                        AllFilesDiscovered -> index.handleAllFilesDiscovered()
-                        is FileSyncFailed -> index.handleFileSyncFailed(event)
+                        StatusUpdate.WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
+                        StatusUpdate.WatcherStarted -> index.handleWatcherStarted()
+                        is StatusUpdate.FileUpdated -> index.handleFileUpdated()
+                        StatusUpdate.AllFilesDiscovered -> index.handleAllFilesDiscovered()
+                        is StatusUpdate.FileSyncFailed -> index.handleFileSyncFailed(event)
                     }
                 }
                 userRequests.onReceive { event ->
@@ -47,8 +47,8 @@ internal suspend fun indexManager(
                 indexUpdateRequests.onReceive { event ->
                     debugLog("indexRequests: $event")
                     when (event) {
-                        is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
-                        is RemoveFileRequest -> index.handleRemoveFileRequest(event)
+                        is FileUpdateRequest.UpdateFile -> index.handleUpdateFileContentRequest(event)
+                        is FileUpdateRequest.RemoveFileRequest -> index.handleRemoveFileRequest(event)
                     }
                 }
             }
@@ -77,12 +77,12 @@ internal class IndexManager(
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
 
-    fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
+    fun handleUpdateFileContentRequest(event: FileUpdateRequest.UpdateFile) {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.addOrUpdateDocument(event.fileAddress, event.tokens)
     }
 
-    fun handleRemoveFileRequest(event: RemoveFileRequest) {
+    fun handleRemoveFileRequest(event: FileUpdateRequest.RemoveFileRequest) {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.removeDocument(event.fileAddress)
     }
@@ -141,7 +141,7 @@ internal class IndexManager(
         invertedIndex.reset()
     }
 
-    fun handleFileSyncFailed(event: FileSyncFailed) {
+    fun handleFileSyncFailed(event: StatusUpdate.FileSyncFailed) {
         clock++
         watcherStarted = false
         allFilesDiscovered = false

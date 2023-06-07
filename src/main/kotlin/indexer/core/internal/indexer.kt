@@ -26,7 +26,7 @@ internal suspend fun indexer(
 }
 
 private suspend fun handleRemoved(event: FileSyncEvent, indexUpdateRequests: SendChannel<FileUpdateRequest>) {
-    indexUpdateRequests.send(RemoveFileRequest(event.t, event.fileAddress, event.source))
+    indexUpdateRequests.send(FileUpdateRequest.RemoveFileRequest(event.t, event.fileAddress, event.source))
 }
 
 private suspend fun handleUpdated(
@@ -39,7 +39,14 @@ private suspend fun handleUpdated(
         try {
             if (path.fileSize() > 10_000_000L) {
                 // file too large, skip
-                indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, setOf(), event.source))
+                indexUpdateRequests.send(
+                    FileUpdateRequest.UpdateFile(
+                        t = event.t,
+                        fileAddress = event.fileAddress,
+                        tokens = setOf(),
+                        source = event.source
+                    )
+                )
                 return@withContext
             }
 
@@ -47,9 +54,23 @@ private suspend fun handleUpdated(
                 .flatMap { cfg.tokenize(it) }
                 .toSet()
 
-            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, tokens, event.source))
+            indexUpdateRequests.send(
+                FileUpdateRequest.UpdateFile(
+                    t = event.t,
+                    fileAddress = event.fileAddress,
+                    tokens = tokens,
+                    source = event.source
+                )
+            )
         } catch (e: IOException) {
-            indexUpdateRequests.send(UpdateFileContentRequest(event.t, event.fileAddress, setOf(), event.source))
+            indexUpdateRequests.send(
+                FileUpdateRequest.UpdateFile(
+                    t = event.t,
+                    fileAddress = event.fileAddress,
+                    tokens = setOf(),
+                    source = event.source
+                )
+            )
             cfg.debugLog("Failed to read ${event.fileAddress}: $e")
         } catch (e: Throwable) {
             throw e

@@ -61,7 +61,7 @@ internal suspend fun syncFs(
             ?: IllegalStateException("Watcher completed without exception for some reason")
 
         cfg.handleWatcherError(watcherException)
-        statusUpdates.send(FileSyncFailed(clock.incrementAndGet(), watcherException))
+        statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
     }
 }
 
@@ -83,7 +83,7 @@ internal suspend fun emitInitialContent(
                     .filter { it.isRegularFile() }
                     .forEach {
                         ensureActive()
-                        statusUpdates.send(FileUpdated(INITIAL_SYNC))
+                        statusUpdates.send(StatusUpdate.FileUpdated(INITIAL_SYNC))
                         fileSyncEvents.send(
                             FileSyncEvent(
                                 clock.incrementAndGet(),
@@ -115,7 +115,7 @@ internal suspend fun emitInitialContent(
         }
 
         initialSyncCompleteLatch.complete(Unit)
-        statusUpdates.send(AllFilesDiscovered)
+        statusUpdates.send(StatusUpdate.AllFilesDiscovered)
     }
 }
 
@@ -142,7 +142,7 @@ internal suspend fun watch(
             // this can be worked around by checking interruption flag in fileHasher,
             // which is called on every encountered file
             val future = runInterruptible { watcher.watchAsync() }
-            statusUpdates.send(WatcherStarted)
+            statusUpdates.send(StatusUpdate.WatcherStarted)
             watcherStartedLatch.complete(Unit)
             future.join()
         }
@@ -169,7 +169,7 @@ private fun buildWatcher(
         // A hack to show some information during watcher initialization
         if (!initialSyncCompleteLatch.isCompleted) {
             runBlocking(ctx + Dispatchers.Unconfined) {
-                statusUpdates.send(WatcherDiscoveredFileDuringInitialization)
+                statusUpdates.send(StatusUpdate.WatcherDiscoveredFileDuringInitialization)
             }
         }
         FileHasher.LAST_MODIFIED_TIME.hash(path)
@@ -182,7 +182,7 @@ private fun buildWatcher(
                 initialSyncCompleteLatch.await()
 
                 val t = clock.incrementAndGet()
-                statusUpdates.send(FileUpdated(WATCHER))
+                statusUpdates.send(StatusUpdate.FileUpdated(WATCHER))
 
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
