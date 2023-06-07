@@ -109,23 +109,7 @@ fun wordIndexConfig(
                 }
                 if (fileSet.isEmpty()) return@flow
 
-                val startToken = searchTokens.first()
-                val startFiles = if (!startTokenIsFull) { // is already core token
-                    index.findFilesByToken(startToken).toSet()
-                } else {
-                    setOf()
-                }
-
-                val endToken = searchTokens.last()
-                val endFiles = if (!endTokenIsFull) {
-                    index.findFilesByToken(endToken).toSet()
-                } else {
-                    setOf()
-                }
-
-                fileSet.intersect(startFiles).intersect(endFiles).forEach { emit(it) }
-                fileSet.intersect(startFiles).forEach { emit(it) }
-                fileSet.intersect(endFiles).forEach { emit(it) }
+                // probably not really worth it to filter by endsWith(startToken), startsWith(endToken) here, not sure
                 fileSet.forEach { emit(it) }
             }
         }

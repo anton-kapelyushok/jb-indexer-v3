@@ -85,7 +85,7 @@ class WordIndexConfigKtTest {
 
         config.find(index, " ou pa ").toSet().let {
             assertThat(it).containsAll(fa("4"))
-            assertThat(it).containsNone(fa("1"), fa("2"), fa("3"), fa("4"), fa("5"), fa("6"))
+            assertThat(it).containsNone(fa("1"), fa("2"), fa("3"), fa("5"), fa("6"))
         }
     }
 
