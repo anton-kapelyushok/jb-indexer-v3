@@ -32,3 +32,4 @@ fun Path.child(name: String): Path {
 }
 
 fun Path.toFileAddress() = FileAddress(toFile().canonicalPath)
+fun FileAddress.toPath() = Paths.get(path)
