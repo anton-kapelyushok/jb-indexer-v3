@@ -38,9 +38,22 @@ fun wordIndexConfig(
 
             1 -> {
                 val searchToken = searchTokens[0].lowercase()
-                index.findFilesByToken(searchToken).forEach { emit(it) }
+                val startTokenIsFull = regex.matches("${query.first()}")
+                val endTokenIsFull = regex.matches("${query.last()}")
 
-                index.findTokensMatchingPredicate { it.contains(searchToken) }
+                @Suppress("KotlinConstantConditions")
+                val tokens = when {
+                    startTokenIsFull && endTokenIsFull -> listOf(searchToken)
+                    !startTokenIsFull && !endTokenIsFull -> index.findTokensMatchingPredicate {
+                        it.contains(searchToken)
+                    }
+
+                    !startTokenIsFull -> index.findTokensMatchingPredicate { it.endsWith(searchToken) }
+                    !endTokenIsFull -> index.findTokensMatchingPredicate { it.startsWith(searchToken) }
+                    else -> error("unreachable")
+                }
+
+                tokens
                     .asFlow()
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
                     .collect { emit(it) }
@@ -48,18 +61,30 @@ fun wordIndexConfig(
 
             2 -> {
                 val (startToken, endToken) = searchTokens
+
+                val startTokenIsFull = regex.matches("${query.first()}")
+                val endTokenIsFull = regex.matches("${query.last()}")
+
                 val startFullMatch = index.findFilesByToken(startToken).toSet()
-                val endFullMatch = index.findFilesByToken(startToken).toSet()
+                val endFullMatch = index.findFilesByToken(endToken).toSet()
 
                 startFullMatch.intersect(endFullMatch).forEach { emit(it) }
 
-                val endStartsWith = index.findTokensMatchingPredicate { it.startsWith(endToken) }.toSet()
+                val endStartsWith =
+                    if (!endTokenIsFull)
+                        index.findTokensMatchingPredicate { it.startsWith(endToken) }.toSet()
+                    else setOf()
+
                 val endStartsWithFiles = endStartsWith.asFlow()
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
                     .onEach { if (it in startFullMatch) emit(it) }
                     .toSet()
 
-                val startEndsWith = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
+                val startEndsWith = if (!startTokenIsFull)
+                    index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
+                else
+                    setOf()
+
                 val startEndsWithFiles = startEndsWith.asFlow()
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
                     .onEach { if (it in endFullMatch) emit(it) }
@@ -69,7 +94,13 @@ fun wordIndexConfig(
             }
 
             else -> {
-                val coreTokens = searchTokens.subList(1, searchTokens.lastIndex)
+                val startTokenIsFull = regex.matches("${query.first()}")
+                val endTokenIsFull = regex.matches("${query.last()}")
+
+                val firstCoreToken = if (startTokenIsFull) 0 else 1
+                val lastCoreToken = if (endTokenIsFull) searchTokens.lastIndex else searchTokens.lastIndex - 1
+                val coreTokens = searchTokens.subList(firstCoreToken, lastCoreToken + 1)
+
                 var fileSet = index.findFilesByToken(coreTokens[0]).toSet()
                 for (i in 1 until coreTokens.size) {
                     if (fileSet.isEmpty()) break
@@ -79,10 +110,18 @@ fun wordIndexConfig(
                 if (fileSet.isEmpty()) return@flow
 
                 val startToken = searchTokens.first()
-                val startFiles = index.findFilesByToken(startToken).toSet()
+                val startFiles = if (!startTokenIsFull) { // is already core token
+                    index.findFilesByToken(startToken).toSet()
+                } else {
+                    setOf()
+                }
 
                 val endToken = searchTokens.last()
-                val endFiles = index.findFilesByToken(endToken).toSet()
+                val endFiles = if (!endTokenIsFull) {
+                    index.findFilesByToken(endToken).toSet()
+                } else {
+                    setOf()
+                }
 
                 fileSet.intersect(startFiles).intersect(endFiles).forEach { emit(it) }
                 fileSet.intersect(startFiles).forEach { emit(it) }
