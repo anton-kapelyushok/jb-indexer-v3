@@ -2,9 +2,11 @@ package indexer.core.internal
 
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
-import kotlinx.coroutines.*
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -59,7 +61,6 @@ internal suspend fun indexManager(
     }
 }
 
-@Suppress("RedundantSuspendModifier") ///**/ they are here for consistency reasons
 internal class IndexManager(
     private val emitStatusUpdate: (IndexStatusUpdate) -> Unit,
     private val enableDebugLog: AtomicBoolean = AtomicBoolean(false),
