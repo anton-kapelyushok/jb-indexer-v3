@@ -20,7 +20,6 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 import kotlin.io.path.exists
 import kotlin.io.path.isRegularFile
-import kotlin.math.pow
 import kotlin.streams.asSequence
 
 internal suspend fun syncFs(
@@ -77,7 +76,7 @@ internal suspend fun emitInitialContent(
 ) {
     withContext(Dispatchers.IO) {
         val retryCount = 10
-        for (retryAttempt in 1..retryCount) {
+        for (attempt in 1..retryCount) {
             try {
                 Files.walk(dir)
                     .asSequence()
@@ -104,12 +103,12 @@ internal suspend fun emitInitialContent(
                 }
 
                 cfg.handleInitialFileSyncError(e)
-                if (retryAttempt == retryCount) throw e
+                if (attempt == retryCount) throw e
 
                 // the usual cause is someone is deleting directory content while we are trying to index it
                 // there is a good chance that it will throw again if we retry immediately
                 // add a backoff to handle this
-                delay(((1.25.pow(retryAttempt - 1.0) - 1) * 500).toLong())
+                delay((attempt - 1) * 1000L)
                 continue
             }
             break

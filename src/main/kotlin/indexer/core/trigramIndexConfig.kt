@@ -2,8 +2,6 @@ package indexer.core
 
 import indexer.core.internal.FileAddress
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,21 +16,8 @@ fun trigramIndexConfig(
 
     override val enableWatcher: Boolean = enableWatcher
 
-    var i = AtomicInteger(0)
-
     override fun tokenize(line: String): List<String> {
         return line.lowercase().windowed(3)
-
-
-//            .map {
-//            val chars = it.toCharArray()
-//            val c0 = chars[0].code
-//            val c1 = chars[1].code
-//            val c2 = chars[2].code
-//
-//
-//            (c0.toLong() shl 16 * 2) + (c1 shl 16 * 1) + c2
-//        }
     }
 
     override suspend fun find(
@@ -45,7 +30,6 @@ fun trigramIndexConfig(
                 val tokens = index.findTokensMatchingPredicate { true }
                 tokens
                     .asFlow()
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
                     .collect { emit(it) }
 
@@ -58,15 +42,12 @@ fun trigramIndexConfig(
                     .findTokensMatchingPredicate { it.contains(query) }
 
                 tokens.asFlow()
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .collect { emit(it) }
                 return@flow
             }
         }
 
-//        val searchTokens = tokenize(query).toList()
         val tokens = tokenize(query)
         var fileSet = index.findFilesByToken(tokens[0]).toSet()
         for (i in 1 until tokens.size) {

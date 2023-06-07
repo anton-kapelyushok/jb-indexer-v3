@@ -2,8 +2,6 @@ package indexer.core
 
 import indexer.core.internal.FileAddress
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -32,9 +30,7 @@ fun wordIndexConfig(
                 val tokens = index.findTokensMatchingPredicate { true }
                 tokens
                     .asFlow()
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .collect { emit(it) }
 
                 return@flow
@@ -46,9 +42,7 @@ fun wordIndexConfig(
 
                 index.findTokensMatchingPredicate { it.contains(searchToken) }
                     .asFlow()
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .collect { emit(it) }
             }
 
@@ -63,7 +57,6 @@ fun wordIndexConfig(
                 val endStartsWith = index.findTokensMatchingPredicate { it.startsWith(endToken) }.toSet()
                 val endStartsWithFiles = endStartsWith.asFlow()
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .onEach { if (it in startFullMatch) emit(it) }
                     .toSet()
 
@@ -71,7 +64,6 @@ fun wordIndexConfig(
                 val startEndsWith = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
                 val startEndsWithFiles = startEndsWith.asFlow()
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
-                    .onEach { currentCoroutineContext().ensureActive() }
                     .onEach { if (it in endFullMatch) emit(it) }
                     .toSet()
 
@@ -88,11 +80,12 @@ fun wordIndexConfig(
                 }
                 if (fileSet.isEmpty()) return@flow
 
-
                 val startToken = searchTokens.first()
-                val endToken = searchTokens.last()
                 val startFiles = index.findFilesByToken(startToken).toSet()
+
+                val endToken = searchTokens.last()
                 val endFiles = index.findFilesByToken(endToken).toSet()
+
                 fileSet.intersect(startFiles).intersect(endFiles).forEach { emit(it) }
                 fileSet.intersect(startFiles).forEach { emit(it) }
                 fileSet.intersect(endFiles).forEach { emit(it) }

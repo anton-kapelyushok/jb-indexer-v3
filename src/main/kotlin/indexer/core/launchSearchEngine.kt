@@ -34,7 +34,6 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
             return withSearchEngineContext {
                 cfg.find(query, index)
                     .distinct()
-                    .buffer(Int.MAX_VALUE)
                     .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
             } ?: flowOf()
         }
