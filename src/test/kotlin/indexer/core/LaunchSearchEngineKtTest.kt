@@ -33,8 +33,6 @@ class LaunchSearchEngineKtTest {
         val searchEngine = launchSearchEngine(config, index)
         searchEngine.indexStatusUpdates().first { it is IndexStatusUpdate.IndexInSync }
 
-        val statusDisplayJob = launchStatusDisplay(searchEngine)
-
         suspend fun checkQuery(query: String) = checkQuery(dirToWatch, searchEngine, query)
 
         checkQuery("poupa")
@@ -49,7 +47,6 @@ class LaunchSearchEngineKtTest {
             }
         }
         checkQuery("Каждому гарантируется свобода мысли и слова").also { assertThat(it).isEmpty() }
-
 
         checkQuery("Граждане Российской Федерации имеют право собираться мирно без оружия").also { assertThat(it).isNotEmpty() }
         searchEngine.catchUpdate {
@@ -66,7 +63,6 @@ class LaunchSearchEngineKtTest {
         checkQuery("олобо").also { assertThat(it).isNotEmpty() }
 
         searchEngine.cancelAll()
-        statusDisplayJob.cancel()
     }
 
     private suspend fun SearchEngine.catchUpdate(fn: suspend () -> Unit) = coroutineScope {
@@ -113,52 +109,4 @@ class LaunchSearchEngineKtTest {
             }
         return result
     }
-
-    private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine): Job {
-        return launch(CoroutineName("displayStatus")) {
-            var wasInSync = false
-            searchEngine.indexStatusUpdates().collect { update ->
-                when (update) {
-                    is IndexStatusUpdate.Initial -> {
-                        println("Index start!")
-                    }
-
-                    is IndexStatusUpdate.Initializing ->
-                        println("Initializing index!")
-
-                    is IndexStatusUpdate.IndexInSync -> {
-                        if (!wasInSync) {
-                            wasInSync = true
-                            println("Initial sync completed after ${update.ts - update.status.lastRestartTime}ms!")
-                        } else {
-                            println("Index in sync again!")
-                        }
-                    }
-
-                    is IndexStatusUpdate.IndexOutOfSync -> {
-                        println("Index out of sync!")
-                    }
-
-                    is IndexStatusUpdate.AllFilesDiscovered ->
-                        println("All files discovered after ${update.ts - update.status.lastRestartTime}ms!")
-
-                    is IndexStatusUpdate.Failed -> {
-                        println("Index failed with exception ${update.reason}")
-                        update.reason.printStackTrace(System.out)
-                    }
-
-                    is IndexStatusUpdate.WatcherStarted ->
-                        println("Watcher started after after ${update.ts - update.status.lastRestartTime}ms!")
-
-                    is IndexStatusUpdate.ReinitializingBecauseFileSyncFailed -> {
-                        wasInSync = false
-                        println("File sync failed with ${update.reason} - reinitializing it")
-                        update.reason.printStackTrace(System.out)
-                    }
-                }
-                println()
-            }
-        }
-    }
-
 }
