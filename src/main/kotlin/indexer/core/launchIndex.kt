@@ -75,7 +75,7 @@ fun CoroutineScope.launchIndex(
             return withIndexContext {
                 val result = CompletableDeferred<List<String>>()
                 val request = FindTokensMatchingPredicateRequest(
-                    matches = predicate,
+                    predicate = predicate,
                     result = result
                 )
                 userRequests.send(request)

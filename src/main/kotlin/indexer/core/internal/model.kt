@@ -56,12 +56,16 @@ internal data class FindFilesByTokenRequest(
 ) : UserRequest
 
 internal data class FindTokensMatchingPredicateRequest(
-    val matches: (token: String) -> Boolean,
+    val predicate: (token: String) -> Boolean,
     val result: CompletableDeferred<List<String>>
 ) : UserRequest
 
 internal data class StatusRequest(
     val result: CompletableDeferred<IndexState>
+) : UserRequest
+
+internal data class CompactRequest(
+    val result: CompletableDeferred<Unit>
 ) : UserRequest
 
 internal data class SearchInFileRequest(
