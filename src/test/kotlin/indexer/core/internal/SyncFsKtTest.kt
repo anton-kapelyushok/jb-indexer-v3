@@ -4,6 +4,7 @@ import assertk.assertThat
 import assertk.assertions.containsAll
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
+import assertk.assertions.isTrue
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventSource.INITIAL_SYNC
 import indexer.core.internal.FileEventSource.WATCHER
@@ -110,6 +111,30 @@ class SyncFsKtTest {
         receiveWatcherDiscoveredFileDuringInitialization()
 
         // there is one more file, but cancel!
+        job.cancel()
+    }
+
+    @Test
+    fun `emitted file addresses should have referential equality`() = runTestWithFilesystem { workingDirectory ->
+        val poupa = workingDirectory.child("poupa").apply { createFile() }
+        val job = launch { syncFs(indexConfig, workingDirectory, fileSyncEvents, statusUpdates) }
+
+        // watcher initialization
+        receiveWatcherDiscoveredFileDuringInitialization()
+        receiveWatcherStarted()
+
+
+        // file sync start
+        receiveFileUpdated(INITIAL_SYNC)
+        val firstFa = receiveFileSyncEvent(1L, INITIAL_SYNC, CREATE)
+        receiveAllFilesDiscovered()
+
+        poupa.deleteExisting()
+        receiveFileUpdated(WATCHER)
+        val secondFa = receiveFileSyncEvent(2L, WATCHER, DELETE)
+
+        assertThat(firstFa === secondFa).isTrue()
+
         job.cancel()
     }
 
