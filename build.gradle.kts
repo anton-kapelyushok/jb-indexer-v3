@@ -21,6 +21,7 @@ dependencies {
     testImplementation("com.willowtreeapps.assertk:assertk:0.26.1")
     testImplementation("io.mockk:mockk:1.13.5")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.1")
+    testImplementation("commons-io:commons-io:2.12.0")
 }
 
 tasks.test {
