@@ -48,7 +48,6 @@ fun wordIndexConfig(
 
             2 -> {
                 val (startToken, endToken) = searchTokens
-                // start full match
                 val startFullMatch = index.findFilesByToken(startToken).toSet()
                 val endFullMatch = index.findFilesByToken(startToken).toSet()
 

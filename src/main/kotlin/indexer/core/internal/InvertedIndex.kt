@@ -7,14 +7,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.ConcurrentHashMap
 
-class InvertedIndex {
+class InvertedIndex(private val loadFactor: Double = 0.75) {
     private var invertedIndexData = ConcurrentHashMap<String, IntArrayList>()
     private var lastFaRef = 0
     private var fileAddressByFileRef = mutableMapOf<Int, FileAddress>()
     private var fileRefByFileAddress = mutableMapOf<FileAddress, Int>()
     private var entriesCountByFileRef = Int2IntOpenHashMap()
-    private var aliveEntries = 0
-    private var totalEntries = 0
+    private var _aliveEntries = 0
+    private var _totalEntries = 0
+
+    val aliveEntries get() = _aliveEntries
+    val totalEntries get() = _totalEntries
 
     val tokensCount get() = invertedIndexData.size
     val documentsCount get() = fileRefByFileAddress.size
@@ -27,19 +30,19 @@ class InvertedIndex {
         fileRefByFileAddress[fileAddress] = faRef
         entriesCountByFileRef[faRef] = tokens.size
 
-        aliveEntries = aliveEntries - prevEntriesCount + tokens.size
-        totalEntries += tokens.size
+        _aliveEntries = _aliveEntries - prevEntriesCount + tokens.size
+        _totalEntries += tokens.size
 
         tokens.forEach { invertedIndexData[it] = (invertedIndexData[it] ?: IntArrayList(1)).apply { add(faRef) } }
 
-        if (totalEntries != 0 && aliveEntries.toDouble() / totalEntries < 0.6) {
+        if (_totalEntries != 0 && aliveEntries.toDouble() / _totalEntries < loadFactor) {
             compact()
         }
     }
 
     fun removeDocument(fileAddress: FileAddress) {
         val prevEntriesCount = removePreviousFileRef(fileAddress)
-        aliveEntries -= prevEntriesCount
+        _aliveEntries -= prevEntriesCount
     }
 
     fun findFilesByToken(token: String): List<FileAddress> {
@@ -56,8 +59,8 @@ class InvertedIndex {
         fileAddressByFileRef.clear()
         fileRefByFileAddress.clear()
         entriesCountByFileRef.clear()
-        aliveEntries = 0
-        totalEntries = 0
+        _aliveEntries = 0
+        _totalEntries = 0
     }
 
     fun compact() {
@@ -92,7 +95,7 @@ class InvertedIndex {
             }
         }
 
-        totalEntries = aliveEntries
+        _totalEntries = aliveEntries
     }
 
     private fun removePreviousFileRef(fa: FileAddress): Int {
