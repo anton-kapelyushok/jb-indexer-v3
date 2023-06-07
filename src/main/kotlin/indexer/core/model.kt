@@ -11,6 +11,7 @@ interface Index : Deferred<Any?> {
     suspend fun findTokensMatchingPredicate(predicate: (token: String) -> Boolean): List<String>
     suspend fun state(): IndexState
     suspend fun statusFlow(): Flow<IndexStatusUpdate>
+    suspend fun compact()
 }
 
 interface SearchEngine : Deferred<Any?> {

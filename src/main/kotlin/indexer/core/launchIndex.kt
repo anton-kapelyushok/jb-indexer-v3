@@ -65,6 +65,14 @@ fun CoroutineScope.launchIndex(
             }
         }
 
+        override suspend fun compact() {
+            return withIndexContext {
+                val future = CompletableDeferred<Unit>()
+                userRequests.send(CompactRequest(future))
+                future.await()
+            } ?: Unit
+        }
+
         override suspend fun findFilesByToken(query: String): List<FileAddress> {
             return withIndexContext {
                 val result = CompletableDeferred<List<FileAddress>>()

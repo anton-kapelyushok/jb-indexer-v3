@@ -24,7 +24,7 @@ suspend fun main() = try {
         val searchEngine = launchSearchEngine(cfg, index)
         launchStatusDisplay(searchEngine)
 
-        runCmdHandler(stdin, searchEngine, cfg)
+        runCmdHandler(stdin, searchEngine, index, cfg)
 
         cancel()
     }
@@ -96,6 +96,7 @@ fun startStdReaderDaemon(): ReceiveChannel<String> {
 private suspend fun runCmdHandler(
     input: ReceiveChannel<String>,
     searchEngine: SearchEngine,
+    index: Index,
     cfg: IndexConfig,
 ) = withContext(CoroutineName("cmdHandler")) {
     val helpMessage = "Available commands: find stop enable-logging status gc memory error help"
@@ -130,6 +131,10 @@ private suspend fun runCmdHandler(
 
             prompt == "memory" -> {
                 println("${ManagementFactory.getMemoryMXBean().heapMemoryUsage.used / 1_000_000} MB")
+            }
+
+            prompt == "compact" -> {
+                index.compact()
             }
 
             prompt == "" -> {
