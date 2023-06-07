@@ -35,7 +35,7 @@ class InvertedIndex(private val loadFactor: Double = 0.75) {
 
         tokens.forEach { invertedIndexData[it] = (invertedIndexData[it] ?: IntArrayList(1)).apply { add(faRef) } }
 
-        if (_totalEntries != 0 && aliveEntries.toDouble() / _totalEntries < loadFactor) {
+        if (_totalEntries != 0 && _aliveEntries.toDouble() / _totalEntries < loadFactor) {
             compact()
         }
     }
@@ -64,12 +64,8 @@ class InvertedIndex(private val loadFactor: Double = 0.75) {
     }
 
     fun compact() {
-        val remappedKeys = mutableMapOf<Int, Int>()
         var lastKey = 1
-        fileAddressByFileRef.keys.forEach { key ->
-            remappedKeys[key] = lastKey++
-        }
-
+        val remappedKeys = fileAddressByFileRef.keys.associateWith { lastKey++ }
         lastFaRef = lastKey
         fileAddressByFileRef = fileAddressByFileRef.mapKeys { (k, _) -> remappedKeys[k]!! }.toMutableMap()
         fileRefByFileAddress = fileRefByFileAddress.mapValues { (_, v) -> remappedKeys[v]!! }.toMutableMap()
@@ -83,7 +79,8 @@ class InvertedIndex(private val loadFactor: Double = 0.75) {
                 launch {
                     for (j in chunkSize * i until minOf(chunkSize * (i + 1), copyOfKeys.size)) {
                         val key = copyOfKeys[j]
-                        val newData = invertedIndexData[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }
+                        val newData =
+                            invertedIndexData[key]!!.mapNotNullTo(IntArrayList()) { remappedKeys[it] }.apply { trim() }
                         if (newData.isEmpty) {
                             invertedIndexData.remove(key)
                         } else {
@@ -94,7 +91,7 @@ class InvertedIndex(private val loadFactor: Double = 0.75) {
             }
         }
 
-        _totalEntries = aliveEntries
+        _totalEntries = _aliveEntries
     }
 
     private fun removePreviousFileRef(fa: FileAddress): Int {
