@@ -26,8 +26,14 @@ fun CoroutineScope.launchIndex(
         repeat(4) {
             launch(CoroutineName("indexer-$it")) { indexer(cfg, fileSyncEvents, indexUpdateRequests) }
         }
-        launch(CoroutineName("index")) {
-            index(cfg, userRequests, indexUpdateRequests, statusUpdates, statusFlow)
+        launch(CoroutineName("indexManager")) {
+            indexManager(
+                userRequests = userRequests,
+                indexUpdateRequests = indexUpdateRequests,
+                statusUpdates = statusUpdates,
+                emitStatusUpdate = { statusFlow.tryEmit(it) },
+                enableDebugLog = cfg.enableLogging
+            )
         }
     }
 

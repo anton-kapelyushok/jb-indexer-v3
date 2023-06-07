@@ -1,33 +1,31 @@
 package indexer.core.internal
 
-import indexer.core.IndexConfig
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.selects.select
 import java.util.*
-import kotlin.coroutines.CoroutineContext
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class FileAddress(val path: String)
 
-internal suspend fun index(
-    cfg: IndexConfig,
+internal suspend fun indexManager(
     userRequests: ReceiveChannel<UserRequest>,
     indexUpdateRequests: ReceiveChannel<FileUpdateRequest>,
     statusUpdates: ReceiveChannel<StatusUpdate>,
-    indexStatusUpdate: MutableSharedFlow<IndexStatusUpdate>,
+    emitStatusUpdate: (IndexStatusUpdate) -> Unit,
+    enableDebugLog: AtomicBoolean = AtomicBoolean(false),
 ) = coroutineScope {
-
-    val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit = { status -> indexStatusUpdate.emit(status) }
-    val index = IndexManager(cfg, coroutineContext, emitStatusUpdate)
+    // indexStatusUpdate is always
+    val index = IndexManager(emitStatusUpdate, enableDebugLog)
+    fun debugLog(s: String) = if (enableDebugLog.get()) println(s) else Unit
 
     try {
         while (true) {
             select {
                 statusUpdates.onReceive { event ->
-                    cfg.debugLog("statusUpdates: $event")
+                    debugLog("statusUpdates: $event")
                     when (event) {
                         WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
                         WatcherStarted -> index.handleWatcherStarted()
@@ -37,7 +35,7 @@ internal suspend fun index(
                     }
                 }
                 userRequests.onReceive { event ->
-                    cfg.debugLog("userRequests: $event")
+                    debugLog("userRequests: $event")
                     when (event) {
                         is FindFilesByTokenRequest -> index.handleFindFileByTokenRequest(event)
                         is StatusRequest -> index.handleStatusRequest(event)
@@ -46,7 +44,7 @@ internal suspend fun index(
                     }
                 }
                 indexUpdateRequests.onReceive { event ->
-                    cfg.debugLog("indexRequests: $event")
+                    debugLog("indexRequests: $event")
                     when (event) {
                         is UpdateFileContentRequest -> index.handleUpdateFileContentRequest(event)
                         is RemoveFileRequest -> index.handleRemoveFileRequest(event)
@@ -54,9 +52,6 @@ internal suspend fun index(
                 }
             }
         }
-    } catch (e: Throwable) {
-        index.handleException(e)
-        throw e
     } finally {
         withContext(NonCancellable) {
             index.handleComplete()
@@ -64,20 +59,16 @@ internal suspend fun index(
     }
 }
 
-@Suppress("RedundantSuspendModifier") // they are here for consistency reasons
+@Suppress("RedundantSuspendModifier") ///**/ they are here for consistency reasons
 internal class IndexManager(
-    private val cfg: IndexConfig,
-    private val ctx: CoroutineContext,
-    private val emitStatusUpdate: suspend (IndexStatusUpdate) -> Unit,
+    private val emitStatusUpdate: (IndexStatusUpdate) -> Unit,
+    private val enableDebugLog: AtomicBoolean = AtomicBoolean(false),
+    private val invertedIndex: InvertedIndex = InvertedIndex(),
 ) {
-    // inverted index data
-    private val invertedIndex = InvertedIndex()
-
-    // index manager data
     private var clock = 0L
     private var logicalTimeOfLastWatcherReset = 0L
     private val startTime = System.currentTimeMillis()
-    private var lastRestartTime = System.currentTimeMillis()
+    private var lastRestartTime = startTime
     private var watcherStarted: Boolean = false
     private var allFilesDiscovered: Boolean = false
     private var syncCompleted: Boolean = false
@@ -86,53 +77,53 @@ internal class IndexManager(
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
 
-    suspend fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
+    fun handleUpdateFileContentRequest(event: UpdateFileContentRequest) {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.addOrUpdateDocument(event.fileAddress, event.tokens)
     }
 
-    suspend fun handleRemoveFileRequest(event: RemoveFileRequest) {
+    fun handleRemoveFileRequest(event: RemoveFileRequest) {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.removeDocument(event.fileAddress)
     }
 
-    suspend fun handleStatusRequest(event: StatusRequest) {
+    fun handleStatusRequest(event: StatusRequest) {
         event.result.complete(status())
     }
 
-    suspend fun handleFindFileByTokenRequest(event: FindFilesByTokenRequest) {
+    fun handleFindFileByTokenRequest(event: FindFilesByTokenRequest) {
         val result = event.result
         result.complete(invertedIndex.findFilesByToken(event.query))
     }
 
-    suspend fun handleFindTokensMatchingPredicateRequest(event: FindTokensMatchingPredicateRequest) {
+    fun handleFindTokensMatchingPredicateRequest(event: FindTokensMatchingPredicateRequest) {
         val result = event.result
         result.complete(invertedIndex.findTokensMatchingPredicate(event.predicate))
     }
 
-    suspend fun handleCompactRequest(event: CompactRequest) {
+    fun handleCompactRequest(event: CompactRequest) {
         invertedIndex.compact()
         event.result.complete(Unit)
     }
 
-    suspend fun handleWatcherStarted() {
+    fun handleWatcherStarted() {
         val watcherStartedTime = System.currentTimeMillis()
-        cfg.debugLog("Watcher started after ${watcherStartedTime - startTime} ms!")
+        debugLog("Watcher started after ${watcherStartedTime - startTime} ms!")
         watcherStarted = true
         emitStatusUpdate(IndexStatusUpdate.WatcherStarted(watcherStartedTime, status()))
     }
 
-    suspend fun handleAllFilesDiscovered() {
+    fun handleAllFilesDiscovered() {
         val allFilesDiscoveredTime = System.currentTimeMillis()
         allFilesDiscovered = true
-        cfg.debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
+        debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
         emitStatusUpdate(IndexStatusUpdate.AllFilesDiscovered(allFilesDiscoveredTime, status()))
         if (handledFileEvents == totalFileEvents) {
             emitStatusUpdate(IndexStatusUpdate.IndexInSync(allFilesDiscoveredTime, status()))
         }
     }
 
-    suspend fun handleFileUpdated() {
+    fun handleFileUpdated() {
         val wasInSync = status().isInSync()
         clock++
         totalFileEvents++
@@ -141,20 +132,16 @@ internal class IndexManager(
         }
     }
 
-    suspend fun handleWatcherDiscoveredFileDuringInitialization() {
+    fun handleWatcherDiscoveredFileDuringInitialization() {
         filesDiscoveredByWatcherDuringInitialization++
     }
 
-    suspend fun handleException(e: Throwable) {
-        clock++
-    }
-
-    suspend fun handleComplete() {
+    fun handleComplete() {
         clock++
         invertedIndex.reset()
     }
 
-    suspend fun handleFileSyncFailed(event: FileSyncFailed) {
+    fun handleFileSyncFailed(event: FileSyncFailed) {
         clock++
         watcherStarted = false
         allFilesDiscovered = false
@@ -174,7 +161,7 @@ internal class IndexManager(
         )
     }
 
-    private suspend fun handleFileSyncEvent(t: Long, fa: FileAddress): Unit? {
+    private fun handleFileSyncEvent(t: Long, fa: FileAddress): Unit? {
         clock++
         checkEventHappenedAfterReset(t) ?: return null
 
@@ -183,7 +170,7 @@ internal class IndexManager(
             if (!syncCompleted) {
                 val syncCompletedTime = System.currentTimeMillis()
                 syncCompleted = true
-                cfg.debugLog("Initial sync completed after ${syncCompletedTime - startTime} ms!")
+                debugLog("Initial sync completed after ${syncCompletedTime - startTime} ms!")
             }
             emitStatusUpdate(IndexStatusUpdate.IndexInSync(System.currentTimeMillis(), status()))
         }
@@ -219,6 +206,8 @@ internal class IndexManager(
         },
         startTime = startTime,
         lastRestartTime = lastRestartTime,
-        isBroken = !ctx.isActive,
+        isBroken = false,
     )
+
+    private fun debugLog(s: String) = if (enableDebugLog.get()) println(s) else Unit
 }
