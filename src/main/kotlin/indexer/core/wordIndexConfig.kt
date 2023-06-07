@@ -22,7 +22,7 @@ fun wordIndexConfig(
             .filter { it.isNotEmpty() }
     }
 
-    override suspend fun find(query: String, index: Index) = flow<FileAddress> {
+    override suspend fun find(index: Index, query: String) = flow<FileAddress> {
         val searchTokens = tokenize(query).toList()
         when (searchTokens.size) {
             0 -> {
@@ -58,7 +58,6 @@ fun wordIndexConfig(
                     .flatMapConcat { index.findFilesByToken(it).asFlow() }
                     .onEach { if (it in startFullMatch) emit(it) }
                     .toSet()
-
 
                 val startEndsWith = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
                 val startEndsWithFiles = startEndsWith.asFlow()

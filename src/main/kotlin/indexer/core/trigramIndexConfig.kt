@@ -4,7 +4,6 @@ import indexer.core.internal.FileAddress
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 fun trigramIndexConfig(
@@ -17,12 +16,15 @@ fun trigramIndexConfig(
     override val enableWatcher: Boolean = enableWatcher
 
     override fun tokenize(line: String): List<String> {
+        if (line.length < 3) {
+            return listOf(line.lowercase().padEnd(3, ' '))
+        }
         return line.lowercase().windowed(3)
     }
 
     override suspend fun find(
-        query: String,
         index: Index,
+        query: String,
     ) = flow<FileAddress> {
         when (query.length) {
             0 -> {

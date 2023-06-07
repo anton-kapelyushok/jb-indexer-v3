@@ -30,8 +30,8 @@ interface IndexConfig {
 
     // returns possible files that match query
     suspend fun find(
-        query: String,
         index: Index,
+        query: String,
     ): Flow<FileAddress>
 
     // determines if line matches query

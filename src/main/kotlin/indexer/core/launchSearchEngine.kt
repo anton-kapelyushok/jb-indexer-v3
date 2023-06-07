@@ -32,7 +32,7 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
 
         override suspend fun find(query: String): Flow<IndexSearchResult> {
             return withSearchEngineContext {
-                cfg.find(query, index)
+                cfg.find(index, query)
                     .distinct()
                     .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
             } ?: flowOf()
