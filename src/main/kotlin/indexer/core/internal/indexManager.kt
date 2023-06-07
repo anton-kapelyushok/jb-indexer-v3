@@ -19,7 +19,6 @@ internal suspend fun indexManager(
     emitStatusUpdate: (IndexStatusUpdate) -> Unit,
     enableDebugLog: AtomicBoolean = AtomicBoolean(false),
 ) = coroutineScope {
-    // indexStatusUpdate is always
     val index = IndexManager(emitStatusUpdate, enableDebugLog)
     fun debugLog(s: String) = if (enableDebugLog.get()) println(s) else Unit
 
