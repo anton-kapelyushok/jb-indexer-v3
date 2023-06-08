@@ -73,7 +73,7 @@ class IndexerKtTest {
             received as FileUpdateRequest.UpdateFile
             assertThat(received.t).isEqualTo(10L)
             assertThat(received.fileAddress).isEqualTo(file.toFileAddress())
-            assertThat(received.tokens).containsAll("volobuev", "gde", "tvoi", "mech", "a", "vot", "onk")
+            assertThat(received.tokens).containsAll("volobuev", "gde", "tvoi", "mech", "a", "vot", "on")
 
             job.cancel()
         }
