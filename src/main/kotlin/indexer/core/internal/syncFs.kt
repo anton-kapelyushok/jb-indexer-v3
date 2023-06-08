@@ -29,34 +29,38 @@ internal suspend fun syncFs(
 
     while (true) {
         coroutineScope {
-            launch {
-                val scope = this
-                val watcherStartedLatch = CompletableDeferred<Unit>()
-                val watcherFileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
+            val watcherStartedLatch = CompletableDeferred<Unit>()
+            val watcherFileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
 
-                if (cfg.enableWatcher) {
-                    launch {
-                        val watcherResult = watcher.watch(
-                            dir,
-                            faInterner,
-                            watcherFileSyncEvents,
-                            statusUpdates,
-                            watcherStartedLatch
-                        )
-                        val watcherException = watcherResult.exceptionOrNull()
-                            ?: IllegalStateException("Watcher completed without exception for some reason")
-                        cfg.handleWatcherError(watcherException)
-                        statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
-                        scope.cancel() // restart
-                    }
-                } else {
-                    watcherStartedLatch.complete(Unit)
+            val watcherDeferred = if (cfg.enableWatcher) {
+                async {
+                    watcher.watch(
+                        dir,
+                        faInterner,
+                        watcherFileSyncEvents,
+                        statusUpdates,
+                        watcherStartedLatch
+                    )
                 }
+            } else {
+                watcherStartedLatch.complete(Unit)
+                CompletableDeferred() // never completes
+            }
 
+            val job = launch {
                 watcherStartedLatch.await()
+                // emit initial file events only after watcher started
                 emitInitialContent(dir, cfg, clock, faInterner, fileSyncEvents, statusUpdates)
+                // emit watcher events only after initial sync completed
                 watcherFileSyncEvents.consumeEach { fileSyncEvents.send(it.copy(t = clock.incrementAndGet())) }
             }
+
+            val watcherException = watcherDeferred.await().exceptionOrNull()
+                ?: IllegalStateException("Watcher completed without exception for some reason")
+            cfg.handleWatcherError(watcherException)
+            // wait until no more events from this generation will be sent, and only then send FileSyncFailed
+            job.cancelAndJoin()
+            statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
         }
     }
 }
