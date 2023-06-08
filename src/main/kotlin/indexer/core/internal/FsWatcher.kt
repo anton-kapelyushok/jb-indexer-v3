@@ -9,13 +9,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.SendChannel
 import org.slf4j.helpers.NOPLogger
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
 internal interface Watcher {
     suspend fun watch(
         dir: Path,
-        clock: AtomicLong,
         faInterner: Interner<FileAddress>,
         fileSyncEvents: SendChannel<FileSyncEvent>,
         statusUpdates: SendChannel<StatusUpdate>,
@@ -26,7 +24,6 @@ internal interface Watcher {
 internal object FsWatcher : Watcher {
     override suspend fun watch(
         dir: Path,
-        clock: AtomicLong,
         faInterner: Interner<FileAddress>,
         fileSyncEvents: SendChannel<FileSyncEvent>,
         statusUpdates: SendChannel<StatusUpdate>,
@@ -36,7 +33,7 @@ internal object FsWatcher : Watcher {
             withContext(Dispatchers.IO) {
                 val watcher = buildWatcher(
                     coroutineContext,
-                    dir, clock, faInterner, watcherStartedLatch, fileSyncEvents, statusUpdates
+                    dir, faInterner, watcherStartedLatch, fileSyncEvents, statusUpdates
                 )
                 invokeOnCancellation { watcher.close() }
 
@@ -57,7 +54,6 @@ internal object FsWatcher : Watcher {
 private fun buildWatcher(
     ctx: CoroutineContext,
     dir: Path,
-    clock: AtomicLong,
     faInterner: Interner<FileAddress>,
     watcherStartedLatch: CompletableDeferred<Unit>,
     fileSyncEvents: SendChannel<FileSyncEvent>,
@@ -84,14 +80,13 @@ private fun buildWatcher(
             if (event.isDirectory) return
             runBlocking(ctx + Dispatchers.Unconfined) {
 
-                val t = clock.incrementAndGet()
                 statusUpdates.send(StatusUpdate.FileUpdated(FileEventSource.WATCHER))
 
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
                         fileSyncEvents.send(
                             FileSyncEvent(
-                                t = t,
+                                t = -1L,
                                 fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
                                 source = FileEventSource.WATCHER,
                                 type = FileEventType.CREATE
@@ -102,7 +97,7 @@ private fun buildWatcher(
                     DirectoryChangeEvent.EventType.MODIFY -> {
                         fileSyncEvents.send(
                             FileSyncEvent(
-                                t = t,
+                                t = -1L,
                                 fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
                                 source = FileEventSource.WATCHER,
                                 type = FileEventType.MODIFY
@@ -113,7 +108,7 @@ private fun buildWatcher(
                     DirectoryChangeEvent.EventType.DELETE -> {
                         fileSyncEvents.send(
                             FileSyncEvent(
-                                t = t,
+                                t = -1L,
                                 fileAddress = event.path().toFile().canonicalPath.toFileAddress(faInterner),
                                 source = FileEventSource.WATCHER,
                                 type = FileEventType.DELETE

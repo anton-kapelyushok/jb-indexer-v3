@@ -38,7 +38,6 @@ internal suspend fun syncFs(
                     launch {
                         val watcherResult = watcher.watch(
                             dir,
-                            clock,
                             faInterner,
                             watcherFileSyncEvents,
                             statusUpdates,
@@ -56,7 +55,7 @@ internal suspend fun syncFs(
 
                 watcherStartedLatch.await()
                 emitInitialContent(dir, cfg, clock, faInterner, fileSyncEvents, statusUpdates)
-                watcherFileSyncEvents.consumeEach { fileSyncEvents.send(it) }
+                watcherFileSyncEvents.consumeEach { fileSyncEvents.send(it.copy(t = clock.incrementAndGet())) }
             }
         }
     }

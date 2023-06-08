@@ -20,7 +20,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Test
 import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.createFile
 import kotlin.io.path.deleteExisting
 import kotlin.io.path.writeText
@@ -328,7 +327,6 @@ class SyncFsKtTest {
         val watcher = object : Watcher {
             override suspend fun watch(
                 dir: Path,
-                clock: AtomicLong,
                 faInterner: Interner<FileAddress>,
                 fileSyncEvents: SendChannel<FileSyncEvent>,
                 statusUpdates: SendChannel<StatusUpdate>,
