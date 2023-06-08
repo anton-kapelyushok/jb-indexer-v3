@@ -32,14 +32,13 @@ internal suspend fun syncFs(
         coroutineScope {
             launch {
                 val scope = this
-
                 val watcherStartedLatch = CompletableDeferred<Unit>()
                 val watcherStatusUpdates = Channel<WatcherStatusUpdate>()
                 val watcherFileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
 
-                val watcherDeferred = if (cfg.enableWatcher) {
-                    val deferred = async {
-                        watcher(
+                if (cfg.enableWatcher) {
+                    launch {
+                        val watcherResult = watcher(
                             dir,
                             clock,
                             faInterner,
@@ -47,21 +46,15 @@ internal suspend fun syncFs(
                             watcherStatusUpdates,
                             watcherStartedLatch
                         )
+                        val watcherException = watcherResult.exceptionOrNull()
+                            ?: IllegalStateException("Watcher completed without exception for some reason")
+
+                        cfg.handleWatcherError(watcherException)
+                        statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
+                        scope.cancel() // restart
                     }
-                    deferred
                 } else {
                     watcherStartedLatch.complete(Unit)
-                    CompletableDeferred() // never completes
-                }
-
-                launch {
-                    val watcherResult = watcherDeferred.await()
-                    val watcherException = watcherResult.exceptionOrNull()
-                        ?: IllegalStateException("Watcher completed without exception for some reason")
-
-                    cfg.handleWatcherError(watcherException)
-                    statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
-                    scope.cancel()
                 }
 
                 launch {
