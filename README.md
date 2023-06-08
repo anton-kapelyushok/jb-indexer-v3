@@ -68,9 +68,9 @@ index.cancel()
 
 ## Design
 
-Search is performed utilizing InvertedIndex
+Search is performed utilizing `InvertedIndex`.
 
-InvertedIndex is managed by indexManager coroutine - it handles concurrent update/read queries and keeps track of index
+InvertedIndex is managed by `indexManager` coroutine - it handles concurrent update/read queries and keeps track of index
 state in regard of directory state. It exposes `findFilesByToken` and `findTokensMatchingPredicate` methods for querying
 it
 
@@ -78,7 +78,7 @@ Directory is tracked with syncFs coroutine which emits directory content and wat
 
 - I use `io.methvin:directory-watcher` library for directory watching
     - on my machine`FileSystems.getDefault().newWatchService()` returns `PollingWatchService`, which is
-      really slow
+      really slow, this one is faster
 - We initialize watcher first, buffer its events, emit directory content. After that we emit buffered and new watcher
   events. That way changes happened during file sync will be captured by watcher and processed by downstream coroutine.
 - Watcher can throw `overflown` event. In this case we lost track of repository contents and need to reinitialize
@@ -86,15 +86,19 @@ Directory is tracked with syncFs coroutine which emits directory content and wat
   sync.
 - Every emitted event has a logical timestamp to prevent saving stale events
 
-File sync events are handled by indexer coroutine, which runs in parallel. It reads file content, parses it and passes
-parsed documents to indexManager coroutine
+File sync events are handled by `indexer` coroutine, which runs in parallel. It reads file content, parses it and passes
+parsed documents to `indexManager` coroutine
 
-launchIndex coroutine launches indexManager, syncFs, indexer coroutines, establishes communication between them and
+`launchIndex` coroutine launches `indexManager`, `syncFs`, `indexer` coroutines, establishes communication between them and
 exposes the index via `Index` interface
 
-launchSearchIndex accepts `Index` returned by `launchIndex` coroutine. It accepts user queries, communicates with index
+`launchSearchIndex` accepts `Index` returned by `launchIndex` coroutine. It accepts user queries, communicates with
+index
 for possible document candidates and passes them to `searchInFile` worker pool to return exact matches. It exposes this
 functionality via `SearchEngine` interface
 
 To keep track search engine state `SearchEngine.indexState` is used to get state at the moment of a call,
-and `SearchEngine.indexStatusUpdates` to subscribe for major index events.
+and `SearchEngine.indexStatusUpdates` to subscribe for major index events
+
+Search and parse behavior can be customized by implementing IndexConfig interface. `wordIndexConfig` and
+`trigramIndexConfig` are implemented.
