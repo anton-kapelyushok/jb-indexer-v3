@@ -5,6 +5,7 @@ import assertk.assertions.containsAll
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isTrue
+import com.google.common.collect.Interner
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventSource.INITIAL_SYNC
 import indexer.core.internal.FileEventSource.WATCHER
@@ -15,8 +16,11 @@ import io.mockk.mockk
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Test
+import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.io.path.createFile
 import kotlin.io.path.deleteExisting
 import kotlin.io.path.writeText
@@ -155,12 +159,11 @@ class SyncFsKtTest {
                 )
             }
 
-            var watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
             var watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
             val breakWatcher = noopWatcherSetup.controls.breakWatcher
 
             // watcher initialization
-            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
+            completeWatcherInitialization(watcherStartedLatch)
 
             // start file sync
             receiveFileUpdated(INITIAL_SYNC)
@@ -175,12 +178,11 @@ class SyncFsKtTest {
             }
 
             // watcher restarts
-            watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
             watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
 
             // fs reinitializes
-            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
-            completeInitialFileSync(watcherStatusUpdates, watcherStartedLatch, 3L)
+            completeWatcherInitialization(watcherStartedLatch)
+            completeInitialFileSync(3L)
 
             job.cancel()
         }
@@ -201,14 +203,12 @@ class SyncFsKtTest {
                 )
             }
 
-            var watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
-            var watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
             val breakWatcher = noopWatcherSetup.controls.breakWatcher
 
             // watcher initialization
-            sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+            launch { sendWatcherDiscoveredFileDuringInitialization() }
             receiveWatcherDiscoveredFileDuringInitialization()
-            sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+            launch { sendWatcherDiscoveredFileDuringInitialization() }
             receiveWatcherDiscoveredFileDuringInitialization()
 
             // watcher breaks
@@ -219,35 +219,31 @@ class SyncFsKtTest {
             }
 
             // watcher restarts
-            watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
-            watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
+            val watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
 
             // fs reinitializes
-            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
-            completeInitialFileSync(watcherStatusUpdates, watcherStartedLatch, 1L)
+            completeWatcherInitialization(watcherStartedLatch)
+            completeInitialFileSync(1L)
 
             job.cancel()
         }
 
     private suspend fun completeWatcherInitialization(
-        watcherStatusUpdates: SendChannel<WatcherStatusUpdate>,
         watcherStartedLatch: CompletableDeferred<Unit>,
-    ) {
-        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+    ) = coroutineScope {
+        launch { sendWatcherDiscoveredFileDuringInitialization() }
         receiveWatcherDiscoveredFileDuringInitialization()
-        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+        launch { sendWatcherDiscoveredFileDuringInitialization() }
         receiveWatcherDiscoveredFileDuringInitialization()
-        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+        launch { sendWatcherDiscoveredFileDuringInitialization() }
         receiveWatcherDiscoveredFileDuringInitialization()
 
-        sendWatcherStarted(watcherStatusUpdates)
+        launch { sendWatcherStarted() }
         receiveWatcherStarted()
         watcherStartedLatch.complete(Unit)
     }
 
     private suspend fun completeInitialFileSync(
-        watcherStatusUpdates: SendChannel<WatcherStatusUpdate>,
-        watcherStartedLatch: CompletableDeferred<Unit>,
         lastT: Long,
     ) {
         receiveFileUpdated(INITIAL_SYNC)
@@ -276,12 +272,12 @@ class SyncFsKtTest {
         }
     }
 
-    private suspend fun sendWatcherDiscoveredFileDuringInitialization(channel: SendChannel<WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization>) {
-        channel.send(WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization)
+    private suspend fun sendWatcherDiscoveredFileDuringInitialization() {
+        statusUpdates.send(StatusUpdate.WatcherDiscoveredFileDuringInitialization)
     }
 
-    private suspend fun sendWatcherStarted(channel: SendChannel<WatcherStatusUpdate.WatcherStarted>) {
-        channel.send(WatcherStatusUpdate.WatcherStarted)
+    private suspend fun sendWatcherStarted() {
+        statusUpdates.send(StatusUpdate.WatcherStarted)
     }
 
     private suspend fun receiveWatcherDiscoveredFileDuringInitialization() {
@@ -316,13 +312,11 @@ class SyncFsKtTest {
     }
 
     private class WatcherControls(
-        var statusUpdates: CompletableDeferred<SendChannel<WatcherStatusUpdate>> = CompletableDeferred(),
         var fileSyncEvents: CompletableDeferred<SendChannel<FileSyncEvent>> = CompletableDeferred(),
         var watcherStartedLatch: CompletableDeferred<CompletableDeferred<Unit>> = CompletableDeferred(),
         var breakWatcher: CompletableDeferred<Throwable> = CompletableDeferred(),
     ) {
         fun reset() {
-            statusUpdates = CompletableDeferred()
             fileSyncEvents = CompletableDeferred()
             watcherStartedLatch = CompletableDeferred()
             breakWatcher = CompletableDeferred()
@@ -331,11 +325,19 @@ class SyncFsKtTest {
 
     private fun noopWatcherSetup(): NoopWatcherSetup {
         val controls = WatcherControls()
-        val watcher: Watcher = { _, _, _, _fileSyncEvents, _statusUpdates, _watcherStartedLatch ->
-            controls.statusUpdates.complete(_statusUpdates)
-            controls.fileSyncEvents.complete(_fileSyncEvents)
-            controls.watcherStartedLatch.complete(_watcherStartedLatch)
-            Result.failure(controls.breakWatcher.await())
+        val watcher = object : Watcher {
+            override suspend fun watch(
+                dir: Path,
+                clock: AtomicLong,
+                faInterner: Interner<FileAddress>,
+                fileSyncEvents: SendChannel<FileSyncEvent>,
+                statusUpdates: SendChannel<StatusUpdate>,
+                watcherStartedLatch: CompletableDeferred<Unit>,
+            ): Result<Any> {
+                controls.fileSyncEvents.complete(fileSyncEvents)
+                controls.watcherStartedLatch.complete(watcherStartedLatch)
+                return Result.failure(controls.breakWatcher.await())
+            }
         }
         return NoopWatcherSetup(watcher, controls)
     }

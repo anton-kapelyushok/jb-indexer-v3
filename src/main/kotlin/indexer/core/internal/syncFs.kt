@@ -4,7 +4,6 @@ import com.google.common.collect.Interner
 import com.google.common.collect.Interners
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventSource.INITIAL_SYNC
-import indexer.core.internal.FileEventSource.WATCHER
 import indexer.core.internal.FileEventType.CREATE
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -23,7 +22,7 @@ internal suspend fun syncFs(
     dir: Path,
     fileSyncEvents: SendChannel<FileSyncEvent>,
     statusUpdates: SendChannel<StatusUpdate>,
-    watcher: Watcher = fsWatcher,
+    watcher: Watcher = FsWatcher,
 ) = coroutineScope {
     val clock = AtomicLong(0L)
     val faInterner = Interners.newWeakInterner<FileAddress>()
@@ -33,39 +32,26 @@ internal suspend fun syncFs(
             launch {
                 val scope = this
                 val watcherStartedLatch = CompletableDeferred<Unit>()
-                val watcherStatusUpdates = Channel<WatcherStatusUpdate>()
                 val watcherFileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
 
                 if (cfg.enableWatcher) {
                     launch {
-                        val watcherResult = watcher(
+                        val watcherResult = watcher.watch(
                             dir,
                             clock,
                             faInterner,
                             watcherFileSyncEvents,
-                            watcherStatusUpdates,
+                            statusUpdates,
                             watcherStartedLatch
                         )
                         val watcherException = watcherResult.exceptionOrNull()
                             ?: IllegalStateException("Watcher completed without exception for some reason")
-
                         cfg.handleWatcherError(watcherException)
                         statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
                         scope.cancel() // restart
                     }
                 } else {
                     watcherStartedLatch.complete(Unit)
-                }
-
-                launch {
-                    watcherStatusUpdates.consumeEach {
-                        val mappedEvent = when (it) {
-                            WatcherStatusUpdate.FileUpdated -> StatusUpdate.FileUpdated(WATCHER)
-                            WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization -> StatusUpdate.WatcherDiscoveredFileDuringInitialization
-                            WatcherStatusUpdate.WatcherStarted -> StatusUpdate.WatcherStarted
-                        }
-                        statusUpdates.send(mappedEvent)
-                    }
                 }
 
                 watcherStartedLatch.await()

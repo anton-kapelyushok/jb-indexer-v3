@@ -22,12 +22,6 @@ internal data class FileSyncEvent(
     val type: FileEventType,
 )
 
-internal sealed interface WatcherStatusUpdate {
-    object WatcherDiscoveredFileDuringInitialization : WatcherStatusUpdate
-    object WatcherStarted : WatcherStatusUpdate
-    object FileUpdated : WatcherStatusUpdate
-}
-
 internal sealed interface StatusUpdate {
     object WatcherStarted : StatusUpdate
     data class FileSyncFailed(val t: Long, val reason: Throwable) : StatusUpdate

@@ -12,40 +12,44 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-internal typealias Watcher = suspend (
-    dir: Path,
-    clock: AtomicLong,
-    faInterner: Interner<FileAddress>,
-    fileSyncEvents: SendChannel<FileSyncEvent>,
-    statusUpdates: SendChannel<WatcherStatusUpdate>,
-    watcherStartedLatch: CompletableDeferred<Unit>,
-) -> Result<Any>
-
-internal val fsWatcher: Watcher = {
+internal interface Watcher {
+    suspend fun watch(
         dir: Path,
         clock: AtomicLong,
         faInterner: Interner<FileAddress>,
         fileSyncEvents: SendChannel<FileSyncEvent>,
-        statusUpdates: SendChannel<WatcherStatusUpdate>,
+        statusUpdates: SendChannel<StatusUpdate>,
         watcherStartedLatch: CompletableDeferred<Unit>,
-    ->
-    runCatching {
-        withContext(Dispatchers.IO) {
-            val watcher = buildWatcher(
-                coroutineContext,
-                dir, clock, faInterner, watcherStartedLatch, fileSyncEvents, statusUpdates
-            )
-            invokeOnCancellation { watcher.close() }
+    ): Result<Any>
+}
 
-            // watcher.watchAsync() is reading the whole directory on start and is blocking
-            // this operation takes about 20s on intellij-community repository - and we want to cancel it
-            // funny thing is, this operation is not interruptible by default
-            // this can be worked around by checking interruption flag in fileHasher,
-            // which is called on every encountered file
-            val future = runInterruptible { watcher.watchAsync() }
-            statusUpdates.send(WatcherStatusUpdate.WatcherStarted)
-            watcherStartedLatch.complete(Unit)
-            future.join()
+internal object FsWatcher : Watcher {
+    override suspend fun watch(
+        dir: Path,
+        clock: AtomicLong,
+        faInterner: Interner<FileAddress>,
+        fileSyncEvents: SendChannel<FileSyncEvent>,
+        statusUpdates: SendChannel<StatusUpdate>,
+        watcherStartedLatch: CompletableDeferred<Unit>,
+    ): Result<Any> {
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                val watcher = buildWatcher(
+                    coroutineContext,
+                    dir, clock, faInterner, watcherStartedLatch, fileSyncEvents, statusUpdates
+                )
+                invokeOnCancellation { watcher.close() }
+
+                // watcher.watchAsync() is reading the whole directory on start and is blocking
+                // this operation takes about 20s on intellij-community repository - and we want to cancel it
+                // funny thing is, this operation is not interruptible by default
+                // this can be worked around by checking interruption flag in fileHasher,
+                // which is called on every encountered file
+                val future = runInterruptible { watcher.watchAsync() }
+                statusUpdates.send(StatusUpdate.WatcherStarted)
+                watcherStartedLatch.complete(Unit)
+                future.join()
+            }
         }
     }
 }
@@ -57,7 +61,7 @@ private fun buildWatcher(
     faInterner: Interner<FileAddress>,
     watcherStartedLatch: CompletableDeferred<Unit>,
     fileSyncEvents: SendChannel<FileSyncEvent>,
-    statusUpdates: SendChannel<WatcherStatusUpdate>,
+    statusUpdates: SendChannel<StatusUpdate>,
 ): DirectoryWatcher = DirectoryWatcher.builder()
     .path(dir)
     .logger(NOPLogger.NOP_LOGGER)
@@ -70,7 +74,7 @@ private fun buildWatcher(
         // A hack to show some information during watcher initialization
         if (!watcherStartedLatch.isCompleted) {
             runBlocking(ctx + Dispatchers.Unconfined) {
-                statusUpdates.send(WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization)
+                statusUpdates.send(StatusUpdate.WatcherDiscoveredFileDuringInitialization)
             }
         }
         FileHasher.LAST_MODIFIED_TIME.hash(path)
@@ -81,7 +85,7 @@ private fun buildWatcher(
             runBlocking(ctx + Dispatchers.Unconfined) {
 
                 val t = clock.incrementAndGet()
-                statusUpdates.send(WatcherStatusUpdate.FileUpdated)
+                statusUpdates.send(StatusUpdate.FileUpdated(FileEventSource.WATCHER))
 
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {
