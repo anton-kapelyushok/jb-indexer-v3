@@ -32,7 +32,6 @@ suspend fun main() = try {
     // ignore
 }
 
-
 private fun CoroutineScope.launchStatusDisplay(searchEngine: SearchEngine) {
     launch(CoroutineName("displayStatus")) {
         var wasInSync = false
