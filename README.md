@@ -68,83 +68,33 @@ index.cancel()
 
 ## Design
 
-Two top level coroutines
+Search is performed utilizing InvertedIndex
 
-* launchIndex
-    * launches three types worker coroutines
-        * index - contains index state, answers user queries
-        * fsSync - synchronizes file system
-        * indexer - reads and parses files found by watcher
+InvertedIndex is managed by indexManager coroutine - it handles concurrent update/read queries and keeps track of index
+state in regard of directory state. It exposes `findFilesByToken` and `findTokensMatchingPredicate` methods for querying
+it
 
-```
-# launchIndex
+Directory is tracked with syncFs coroutine which emits directory content and watches for changes
 
-+-----+                        O                     
-|index|<---userRequests-----  /|\
-+-----+                       / \                   
- ^  ^                                            
- |  |                                            
- |  |                                            
- |  |                                            
- |  +-------------------------+                  
- |                            |                  
- | indexUpdateRequests        | statusUpdates    
- |                            |                  
-+-------+                    +------+         
-|indexer|<-- fileSyncEvents--|fsSync |         
-+-------+                    +------+         
-```
+- I use `io.methvin:directory-watcher` library for directory watching
+    - on my machine`FileSystems.getDefault().newWatchService()` returns `PollingWatchService`, which is
+      really slow
+- We initialize watcher first, buffer its events, emit directory content. After that we emit buffered and new watcher
+  events. That way changes happened during file sync will be captured by watcher and processed by downstream coroutine.
+- Watcher can throw `overflown` event. In this case we lost track of repository contents and need to reinitialize
+- Sometimes, when directory is changed during initial file sync, the process can fail. In this case we retry file
+  sync.
+- Every emitted event has a logical timestamp to prevent saving stale events
 
-* searchEngine
-    * launches one type of worker
-        * searchInFile - reads file and checks if it matches query
+File sync events are handled by indexer coroutine, which runs in parallel. It reads file content, parses it and passes
+parsed documents to indexManager coroutine
 
-### Design decisions
+launchIndex coroutine launches indexManager, syncFs, indexer coroutines, establishes communication between them and
+exposes the index via `Index` interface
 
-* I chose coroutines because they are fun
-* index
-    * uses ConcurrentHashMap to allow reads parallel with writes
-        * considered HashMap with rw lock here, but decided against it - blocking writes during reads seemed like a bad
-          decision
-        * considered HashMap with taking snapshots on read or write - it was too slow
-        * [considered SegmentedIndex](https://github.com/anton-kapelyushok/jb-indexer-v2/blob/segmented-index-experiment/src/main/kotlin/indexer/core/segmented.kt) -
-          too slow, but takes significantly less memory (530MB vs 1500MB now)
-        * stores only file information (no positions in file) to fit in memory
-            * [considered storing token offsets](https://github.com/anton-kapelyushok/jb-indexer-v2/blob/line-offsets-experiment-2-offsets/src/main/kotlin/indexer/core/internal/index.kt#L74-L76),
-              token line numbers and line separator index - takes 50% more memory (2200MB vs 1500 now), increases search
-              speed on some queries
-    * listens for three channels in select to prioritize events: statusUpdates > userRequests > indexUpdateRequests
-* watcher
-    * decided to use `io.methvin:directory-watcher` library
-        * I am using Mac, and `FileSystems.getDefault().newWatchService()` returns `PollingWatchService`, which is
-          really slow
-        * API is blocking and not exactly cooperative, so I have to make a lot of exercises to make it work
-    * if watcher is on, I do the following for data consistency:
-        * each FileEvent has clock associated with it
-            * indexer runs in parallel - events might be out of order when they get to index coroutine
-            * index coroutine discards update events if it has seen new ones
-        * on initialize
-            * start the watcher
-            * wait until it is initialized, but buffer its events
-            * emit all files in directory
-              * if error happens on this step, retry 
-            * start emitting watcher events (buffered and new)
-        * if watcher has failed, start over
-* search is executed as following
-    * ask index for candidate files matching query
-        * algorithm can be defined in IndexConfig
-    * go through all candidate files, read them and check they match the query
-    * wordIndex and trigramIndex are implemented
-* client-library communication
-    * events are sent to userRequests channel with CompletableDeferred field for result
-    * channel.send and CompletableDeferred.await() are called in index context to avoid blocking forever when index
-      breaks
-* index status
-    * events are originated in watcher
-    * events are handled in index, but they are going through indexer
-    * added direct statusUpdates channel between watcher and index to count unhandled events
-        * was also considering sharing some AtomicLongs but decided against it
-    * index reads statusUpdates in priority and updates its state
-    * on major updates (index started, watcher started, initial sync completed) status update is pushed to statusFlow -
-      it can be retrieved by calling searchEngine.indexStatusFlow()
-    * current status can be queried by calling index.status()
+launchSearchIndex accepts `Index` returned by `launchIndex` coroutine. It accepts user queries, communicates with index
+for possible document candidates and passes them to `searchInFile` worker pool to return exact matches. It exposes this
+functionality via `SearchEngine` interface
+
+To keep track search engine state `SearchEngine.indexState` is used to get state at the moment of a call,
+and `SearchEngine.indexStatusUpdates` to subscribe for major index events.
