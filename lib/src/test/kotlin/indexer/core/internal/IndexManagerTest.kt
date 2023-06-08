@@ -258,7 +258,7 @@ class IndexManagerTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     private fun IndexManager.status(): IndexState {
         val result = CompletableDeferred<IndexState>()
-        handleStatusRequest(StatusRequest(result))
+        handleStatusRequest(Status(result))
         return result.getCompleted()
     }
 }

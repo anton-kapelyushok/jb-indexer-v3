@@ -51,7 +51,7 @@ fun CoroutineScope.launchIndex(
         override suspend fun state(): IndexState {
             return withIndexContext {
                 val future = CompletableDeferred<IndexState>()
-                userRequests.send(StatusRequest(future))
+                userRequests.send(UserRequest.Status(future))
                 future.await()
             } ?: IndexState.broken()
         }
@@ -68,7 +68,7 @@ fun CoroutineScope.launchIndex(
         override suspend fun compact() {
             return withIndexContext {
                 val future = CompletableDeferred<Unit>()
-                userRequests.send(CompactRequest(future))
+                userRequests.send(UserRequest.Compact(future))
                 future.await()
             } ?: Unit
         }
@@ -76,7 +76,7 @@ fun CoroutineScope.launchIndex(
         override suspend fun findFilesByToken(query: String): List<FileAddress> {
             return withIndexContext {
                 val result = CompletableDeferred<List<FileAddress>>()
-                val request = FindFilesByTokenRequest(
+                val request = UserRequest.FindFilesByToken(
                     query = query,
                     result = result,
                 )
@@ -88,7 +88,7 @@ fun CoroutineScope.launchIndex(
         override suspend fun findTokensMatchingPredicate(predicate: (token: String) -> Boolean): List<String> {
             return withIndexContext {
                 val result = CompletableDeferred<List<String>>()
-                val request = FindTokensMatchingPredicateRequest(
+                val request = UserRequest.FindTokensMatchingPredicate(
                     predicate = predicate,
                     result = result
                 )

@@ -38,10 +38,10 @@ internal suspend fun indexManager(
                 userRequests.onReceive { event ->
                     debugLog("userRequests: $event")
                     when (event) {
-                        is FindFilesByTokenRequest -> index.handleFindFileByTokenRequest(event)
-                        is StatusRequest -> index.handleStatusRequest(event)
-                        is FindTokensMatchingPredicateRequest -> index.handleFindTokensMatchingPredicateRequest(event)
-                        is CompactRequest -> index.handleCompactRequest(event)
+                        is UserRequest.FindFilesByToken -> index.handleFindFileByTokenRequest(event)
+                        is UserRequest.Status -> index.handleStatusRequest(event)
+                        is UserRequest.FindTokensMatchingPredicate -> index.handleFindTokensMatchingPredicateRequest(event)
+                        is UserRequest.Compact -> index.handleCompactRequest(event)
                     }
                 }
                 indexUpdateRequests.onReceive { event ->
@@ -87,21 +87,21 @@ internal class IndexManager(
         invertedIndex.removeDocument(event.fileAddress)
     }
 
-    fun handleStatusRequest(event: StatusRequest) {
+    fun handleStatusRequest(event: UserRequest.Status) {
         event.result.complete(status())
     }
 
-    fun handleFindFileByTokenRequest(event: FindFilesByTokenRequest) {
+    fun handleFindFileByTokenRequest(event: UserRequest.FindFilesByToken) {
         val result = event.result
         result.complete(invertedIndex.findFilesByToken(event.query))
     }
 
-    fun handleFindTokensMatchingPredicateRequest(event: FindTokensMatchingPredicateRequest) {
+    fun handleFindTokensMatchingPredicateRequest(event: UserRequest.FindTokensMatchingPredicate) {
         val result = event.result
         result.complete(invertedIndex.findTokensMatchingPredicate(event.predicate))
     }
 
-    fun handleCompactRequest(event: CompactRequest) {
+    fun handleCompactRequest(event: UserRequest.Compact) {
         invertedIndex.compact()
         event.result.complete(Unit)
     }

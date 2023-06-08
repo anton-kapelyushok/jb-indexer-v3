@@ -50,25 +50,25 @@ internal sealed interface FileUpdateRequest {
     ) : FileUpdateRequest
 }
 
-internal sealed interface UserRequest
+internal sealed interface UserRequest {
+    data class FindFilesByToken(
+        val query: String,
+        val result: CompletableDeferred<List<FileAddress>>,
+    ) : UserRequest
 
-internal data class FindFilesByTokenRequest(
-    val query: String,
-    val result: CompletableDeferred<List<FileAddress>>,
-) : UserRequest
+    data class FindTokensMatchingPredicate(
+        val predicate: (token: String) -> Boolean,
+        val result: CompletableDeferred<List<String>>,
+    ) : UserRequest
 
-internal data class FindTokensMatchingPredicateRequest(
-    val predicate: (token: String) -> Boolean,
-    val result: CompletableDeferred<List<String>>
-) : UserRequest
+    data class Status(
+        val result: CompletableDeferred<IndexState>,
+    ) : UserRequest
 
-internal data class StatusRequest(
-    val result: CompletableDeferred<IndexState>
-) : UserRequest
-
-internal data class CompactRequest(
-    val result: CompletableDeferred<Unit>
-) : UserRequest
+    data class Compact(
+        val result: CompletableDeferred<Unit>,
+    ) : UserRequest
+}
 
 internal data class SearchInFileRequest(
     val fa: FileAddress,
