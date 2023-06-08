@@ -66,14 +66,14 @@ class SyncFsKtTest {
             assertThat(it).isEqualTo(emittedFiles[0])
         }
 
-        // created files are catched
+        // created files are captured
         val volobuevFile = workingDirectory.child("volobuev").apply { createFile() }
         receiveFileUpdated(WATCHER)
         receiveFileSyncEvent(5L, WATCHER, CREATE).let {
             assertThat(it).isEqualTo(volobuevFile.toFileAddress())
         }
 
-        // updated files are also catched
+        // updated files are also captured
         dirSetup.nestedPoupa.writeText("some really important content update")
         receiveFileUpdated(WATCHER)
         receiveFileSyncEvent(6L, WATCHER, MODIFY).let {

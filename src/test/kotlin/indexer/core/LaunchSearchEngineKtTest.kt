@@ -41,7 +41,7 @@ class LaunchSearchEngineKtTest {
         checkQuery("async(CoroutineName")
 
         checkQuery("Каждому гарантируется свобода мысли и слова").also { assertThat(it).isNotEmpty() }
-        searchEngine.catchUpdate {
+        searchEngine.captureUpdate {
             withContext(Dispatchers.IO) {
                 dirToWatch.child("статья 29.txt").deleteExisting()
             }
@@ -49,7 +49,7 @@ class LaunchSearchEngineKtTest {
         checkQuery("Каждому гарантируется свобода мысли и слова").also { assertThat(it).isEmpty() }
 
         checkQuery("Граждане Российской Федерации имеют право собираться мирно без оружия").also { assertThat(it).isNotEmpty() }
-        searchEngine.catchUpdate {
+        searchEngine.captureUpdate {
             withContext(Dispatchers.IO) {
                 dirToWatch.child("статья 31.txt").writeText(
                     """
@@ -65,8 +65,8 @@ class LaunchSearchEngineKtTest {
         searchEngine.cancelAll()
     }
 
-    private suspend fun SearchEngine.catchUpdate(fn: suspend () -> Unit) = coroutineScope {
-        val se = this@catchUpdate
+    private suspend fun SearchEngine.captureUpdate(fn: suspend () -> Unit) = coroutineScope {
+        val se = this@captureUpdate
         val ready = CompletableDeferred<Unit>()
         launch {
             val currentState = se.indexState()
