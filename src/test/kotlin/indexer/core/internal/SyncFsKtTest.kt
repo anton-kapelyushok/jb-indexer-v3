@@ -12,7 +12,9 @@ import indexer.core.internal.FileEventType.*
 import indexer.core.test.*
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.launch
 import org.junit.jupiter.api.Test
 import kotlin.io.path.createFile
@@ -123,7 +125,6 @@ class SyncFsKtTest {
         receiveWatcherDiscoveredFileDuringInitialization()
         receiveWatcherStarted()
 
-
         // file sync start
         receiveFileUpdated(INITIAL_SYNC)
         val firstFa = receiveFileSyncEvent(1L, INITIAL_SYNC, CREATE)
@@ -136,6 +137,126 @@ class SyncFsKtTest {
         assertThat(firstFa === secondFa).isTrue()
 
         job.cancel()
+    }
+
+    @Test
+    fun `should be able to reinitialize when watcher error happens after initial file sync`() =
+        runTestWithFilesystem { workingDirectory ->
+            initializeDirectory(workingDirectory)
+            val noopWatcherSetup = noopWatcherSetup()
+
+            val job = launch {
+                syncFs(
+                    cfg = indexConfig,
+                    dir = workingDirectory,
+                    fileSyncEvents = fileSyncEvents,
+                    statusUpdates = statusUpdates,
+                    watcher = noopWatcherSetup.watcher
+                )
+            }
+
+            var watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
+            var watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
+            val breakWatcher = noopWatcherSetup.controls.breakWatcher
+
+            // watcher initialization
+            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
+
+            // start file sync
+            receiveFileUpdated(INITIAL_SYNC)
+            receiveFileSyncEvent(1L, INITIAL_SYNC, CREATE)
+            receiveFileUpdated(INITIAL_SYNC)
+
+            // watcher breaks
+            breakWatcher.complete(IllegalStateException("poupa"))
+            noopWatcherSetup.controls.reset()
+            receiveFileSyncFailed().also {
+                assertThat(it.t).isEqualTo(3L)
+            }
+
+            // watcher restarts
+            watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
+            watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
+
+            // fs reinitializes
+            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
+            completeInitialFileSync(watcherStatusUpdates, watcherStartedLatch, 3L)
+
+            job.cancel()
+        }
+
+    @Test
+    fun `should be able to reinitialize when watcher error happens before initial file sync`() =
+        runTestWithFilesystem { workingDirectory ->
+            initializeDirectory(workingDirectory)
+            val noopWatcherSetup = noopWatcherSetup()
+
+            val job = launch {
+                syncFs(
+                    cfg = indexConfig,
+                    dir = workingDirectory,
+                    fileSyncEvents = fileSyncEvents,
+                    statusUpdates = statusUpdates,
+                    watcher = noopWatcherSetup.watcher
+                )
+            }
+
+            var watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
+            var watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
+            val breakWatcher = noopWatcherSetup.controls.breakWatcher
+
+            // watcher initialization
+            sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+            receiveWatcherDiscoveredFileDuringInitialization()
+            sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+            receiveWatcherDiscoveredFileDuringInitialization()
+
+            // watcher breaks
+            breakWatcher.complete(IllegalStateException("poupa"))
+            noopWatcherSetup.controls.reset()
+            receiveFileSyncFailed().also {
+                assertThat(it.t).isEqualTo(1L)
+            }
+
+            // watcher restarts
+            watcherStatusUpdates = noopWatcherSetup.controls.statusUpdates.await()
+            watcherStartedLatch = noopWatcherSetup.controls.watcherStartedLatch.await()
+
+            // fs reinitializes
+            completeWatcherInitialization(watcherStatusUpdates, watcherStartedLatch)
+            completeInitialFileSync(watcherStatusUpdates, watcherStartedLatch, 1L)
+
+            job.cancel()
+        }
+
+    private suspend fun completeWatcherInitialization(
+        watcherStatusUpdates: SendChannel<WatcherStatusUpdate>,
+        watcherStartedLatch: CompletableDeferred<Unit>,
+    ) {
+        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+        receiveWatcherDiscoveredFileDuringInitialization()
+        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+        receiveWatcherDiscoveredFileDuringInitialization()
+        sendWatcherDiscoveredFileDuringInitialization(watcherStatusUpdates)
+        receiveWatcherDiscoveredFileDuringInitialization()
+
+        sendWatcherStarted(watcherStatusUpdates)
+        receiveWatcherStarted()
+        watcherStartedLatch.complete(Unit)
+    }
+
+    private suspend fun completeInitialFileSync(
+        watcherStatusUpdates: SendChannel<WatcherStatusUpdate>,
+        watcherStartedLatch: CompletableDeferred<Unit>,
+        lastT: Long,
+    ) {
+        receiveFileUpdated(INITIAL_SYNC)
+        receiveFileSyncEvent(lastT + 1, INITIAL_SYNC, CREATE)
+        receiveFileUpdated(INITIAL_SYNC)
+        receiveFileSyncEvent(lastT + 2, INITIAL_SYNC, CREATE)
+        receiveFileUpdated(INITIAL_SYNC)
+        receiveFileSyncEvent(lastT + 3, INITIAL_SYNC, CREATE)
+        receiveAllFilesDiscovered()
     }
 
     private suspend fun receiveFileUpdated(source: FileEventSource) {
@@ -155,6 +276,14 @@ class SyncFsKtTest {
         }
     }
 
+    private suspend fun sendWatcherDiscoveredFileDuringInitialization(channel: SendChannel<WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization>) {
+        channel.send(WatcherStatusUpdate.WatcherDiscoveredFileDuringInitialization)
+    }
+
+    private suspend fun sendWatcherStarted(channel: SendChannel<WatcherStatusUpdate.WatcherStarted>) {
+        channel.send(WatcherStatusUpdate.WatcherStarted)
+    }
+
     private suspend fun receiveWatcherDiscoveredFileDuringInitialization() {
         statusUpdates.receive().let {
             assertThat(it).isInstanceOf(StatusUpdate.WatcherDiscoveredFileDuringInitialization::class)
@@ -171,5 +300,43 @@ class SyncFsKtTest {
         statusUpdates.receive().let {
             assertThat(it).isInstanceOf(StatusUpdate.AllFilesDiscovered::class)
         }
+    }
+
+    private suspend fun receiveFileSyncFailed(): StatusUpdate.FileSyncFailed {
+        val update = statusUpdates.receive().also {
+            assertThat(it).isInstanceOf(StatusUpdate.FileSyncFailed::class)
+        }
+        return update as StatusUpdate.FileSyncFailed
+    }
+
+    private class NoopWatcherSetup(
+        val watcher: Watcher,
+        val controls: WatcherControls,
+    ) {
+    }
+
+    private class WatcherControls(
+        var statusUpdates: CompletableDeferred<SendChannel<WatcherStatusUpdate>> = CompletableDeferred(),
+        var fileSyncEvents: CompletableDeferred<SendChannel<FileSyncEvent>> = CompletableDeferred(),
+        var watcherStartedLatch: CompletableDeferred<CompletableDeferred<Unit>> = CompletableDeferred(),
+        var breakWatcher: CompletableDeferred<Throwable> = CompletableDeferred(),
+    ) {
+        fun reset() {
+            statusUpdates = CompletableDeferred()
+            fileSyncEvents = CompletableDeferred()
+            watcherStartedLatch = CompletableDeferred()
+            breakWatcher = CompletableDeferred()
+        }
+    }
+
+    private fun noopWatcherSetup(): NoopWatcherSetup {
+        val controls = WatcherControls()
+        val watcher: Watcher = { _, _, _, _fileSyncEvents, _statusUpdates, _watcherStartedLatch ->
+            controls.statusUpdates.complete(_statusUpdates)
+            controls.fileSyncEvents.complete(_fileSyncEvents)
+            controls.watcherStartedLatch.complete(_watcherStartedLatch)
+            Result.failure(controls.breakWatcher.await())
+        }
+        return NoopWatcherSetup(watcher, controls)
     }
 }
