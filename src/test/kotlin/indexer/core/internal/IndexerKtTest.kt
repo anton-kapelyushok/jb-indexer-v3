@@ -20,7 +20,6 @@ import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import kotlin.io.path.createFile
-import kotlin.io.path.readAttributes
 import kotlin.io.path.writeText
 import kotlin.time.Duration.Companion.seconds
 
@@ -60,8 +59,6 @@ class IndexerKtTest {
                 """.trimIndent()
             )
 
-            println(file.readAttributes())
-
             fileSyncEvents.send(
                 FileSyncEvent(
                     t = 10L,
@@ -76,7 +73,7 @@ class IndexerKtTest {
             received as FileUpdateRequest.UpdateFile
             assertThat(received.t).isEqualTo(10L)
             assertThat(received.fileAddress).isEqualTo(file.toFileAddress())
-            assertThat(received.tokens).containsAll(*"volobuev gde tvoi mech a vot on".split(" ").toTypedArray())
+            assertThat(received.tokens).containsAll("volobuev", "gde", "tvoi", "mech", "a", "vot", "onk")
 
             job.cancel()
         }
