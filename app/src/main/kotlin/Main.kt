@@ -13,8 +13,8 @@ suspend fun main() = try {
 
         val stdin = startStdReaderDaemon()
 
-//        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
-        val cfg = indexer.core.trigramIndexConfig(enableWatcher = false)
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
+//        val cfg = indexer.core.trigramIndexConfig(enableWatcher = false)
 
         val dir = "."
 //            val dir = "/Users/akapelyushok/git_tree/main"
