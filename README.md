@@ -1,4 +1,4 @@
-# File Indexer 2
+# File Indexer
 
 ```
 Please implement a library for simple text search. Imagine, the library will then be used by other people.
