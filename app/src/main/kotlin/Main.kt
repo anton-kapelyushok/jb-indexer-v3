@@ -13,7 +13,7 @@ suspend fun main() = try {
 
         val stdin = startStdReaderDaemon()
 
-        val cfg = indexer.core.wordIndexConfig(enableWatcher = false)
+        val cfg = indexer.core.wordIndexConfig(enableWatcher = true)
 //        val cfg = indexer.core.trigramIndexConfig(enableWatcher = false)
 
         val dir = "."
@@ -118,7 +118,10 @@ private suspend fun runCmdHandler(
             }
 
             prompt == "status" -> {
-                println(searchEngine.indexState())
+                val state = searchEngine.indexState()
+                println(state)
+                println()
+                println(state.prettyPrint())
             }
 
             prompt == "gc" -> {

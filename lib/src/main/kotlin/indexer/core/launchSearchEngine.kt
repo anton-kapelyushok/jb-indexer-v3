@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.*
 fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEngine {
     val searchInFileRequests = Channel<SearchInFileRequest>()
 
-    val deferred = async(CoroutineName("launchSearchEngine")) {
+    val deferred = async(Dispatchers.Default + CoroutineName("launchSearchEngine")) {
         repeat(4) {
             launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
         }

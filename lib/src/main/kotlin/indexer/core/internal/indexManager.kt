@@ -199,11 +199,8 @@ internal class IndexManager(
         watcherStarted = watcherStarted,
         allFileDiscovered = allFilesDiscovered,
         handledFileEvents = handledFileEvents,
-        totalFileEvents = if (!allFilesDiscovered) {
-            maxOf(totalFileEvents, filesDiscoveredByWatcherDuringInitialization)
-        } else {
-            totalFileEvents
-        },
+        totalFileEvents = totalFileEvents,
+        filesDiscoveredByWatcherDuringInitialization = filesDiscoveredByWatcherDuringInitialization,
         startTime = startTime,
         lastRestartTime = lastRestartTime,
         isBroken = false,

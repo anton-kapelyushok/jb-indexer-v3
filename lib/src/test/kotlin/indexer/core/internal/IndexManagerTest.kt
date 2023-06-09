@@ -127,44 +127,6 @@ class IndexManagerTest {
     }
 
     @Test
-    fun `should report total file events from watcher until all files are discovered by initial file sync`() {
-        repeat(5) {
-            indexManager.handleWatcherDiscoveredFileDuringInitialization()
-        }
-        repeat(4) {
-            indexManager.handleFileUpdated()
-        }
-
-        // watcher events is greater than file sync -> return watcher count
-        assertThat(indexManager.status().totalFileEvents).isEqualTo(5)
-
-        // all files discovered, we know for sure that file sync events are correct
-        indexManager.handleAllFilesDiscovered()
-        assertThat(indexManager.status().totalFileEvents).isEqualTo(4)
-    }
-
-    @Test
-    fun `should report total file events from handleFileUpdated() when its amount exceeds amount discovered by watcher`() {
-        // only watcher events -> return watcher
-        repeat(5) {
-            indexManager.handleWatcherDiscoveredFileDuringInitialization()
-        }
-        assertThat(indexManager.status().totalFileEvents).isEqualTo(5)
-
-        // 5 watcher events, 3 file sync -> return watcher
-        repeat(3) {
-            indexManager.handleFileUpdated()
-        }
-        assertThat(indexManager.status().totalFileEvents).isEqualTo(5)
-
-        // 5 watcher events, 6 file sync -> return file sync
-        repeat(3) {
-            indexManager.handleFileUpdated()
-        }
-        assertThat(indexManager.status().totalFileEvents).isEqualTo(6)
-    }
-
-    @Test
     fun `should reset state when file sync failed`() {
         // initialize normally
         indexManager.handleWatcherDiscoveredFileDuringInitialization()

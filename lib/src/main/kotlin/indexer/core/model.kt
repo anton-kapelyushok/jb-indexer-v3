@@ -61,12 +61,33 @@ data class IndexState(
     val watcherStarted: Boolean,
     val handledFileEvents: Long,
     val totalFileEvents: Long,
+    val filesDiscoveredByWatcherDuringInitialization: Long,
     val isBroken: Boolean,
     val allFileDiscovered: Boolean,
 ) {
 
     fun isInSync(): Boolean {
         return !isBroken && allFileDiscovered && handledFileEvents == totalFileEvents
+    }
+
+    fun prettyPrint(): String {
+        val progressTotal =
+            if (!allFileDiscovered) maxOf(
+                totalFileEvents,
+                filesDiscoveredByWatcherDuringInitialization
+            ) else totalFileEvents
+        val progress = if (allFileDiscovered) {
+            if (progressTotal == 0L) 1.0
+            else handledFileEvents.toDouble() / totalFileEvents
+        } else {
+            if (progressTotal == 0L) 0.0
+            else handledFileEvents.toDouble() / progressTotal
+        }
+        return """
+            in sync: ${isInSync()}
+            progress: ${handledFileEvents}/$progressTotal ${(progress * 100).toInt()}%
+            indexed files: $indexedFiles
+        """.trimIndent()
     }
 
     companion object {
@@ -82,6 +103,7 @@ data class IndexState(
             startTime = -1L,
             lastRestartTime = -1L,
             allFileDiscovered = false,
+            filesDiscoveredByWatcherDuringInitialization = 0,
         )
     }
 }
