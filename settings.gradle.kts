@@ -1,3 +1,3 @@
-rootProject.name = "indexer-v2"
+rootProject.name = "jb-indexer"
 include("lib")
 include("app")
