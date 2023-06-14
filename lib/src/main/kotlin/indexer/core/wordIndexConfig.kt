@@ -117,7 +117,6 @@ fun wordIndexConfig(
 
                 if (startTokenIsFull && endTokenIsFull) return@flow
 
-                val start = System.currentTimeMillis()
                 if (!startTokenIsFull) {
                     val tokensInIndex = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
                     val newFiles = tokensInIndex.flatMap { index.findFilesByToken(it) }.toSet()
@@ -137,12 +136,6 @@ fun wordIndexConfig(
                 }
 
                 fileSet.forEach { emit(it) }
-
-                println(
-                    "${
-                        System.currentTimeMillis() - start
-                    } !!"
-                )
             }
         }
     }
