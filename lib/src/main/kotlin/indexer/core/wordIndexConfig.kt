@@ -97,9 +97,7 @@ fun wordIndexConfig(
                 val startTokenIsFull = regex.matches("${query.first()}")
                 val endTokenIsFull = regex.matches("${query.last()}")
 
-                val firstCoreToken = if (startTokenIsFull) 0 else 1
-                val lastCoreToken = if (endTokenIsFull) searchTokens.lastIndex else searchTokens.lastIndex - 1
-                val coreTokens = searchTokens.subList(firstCoreToken, lastCoreToken + 1)
+                val coreTokens = searchTokens.subList(1, searchTokens.lastIndex)
 
                 var fileSet = index.findFilesByToken(coreTokens[0]).toSet()
                 for (i in 1 until coreTokens.size) {
@@ -109,8 +107,42 @@ fun wordIndexConfig(
                 }
                 if (fileSet.isEmpty()) return@flow
 
-                // probably not really worth it to filter by endsWith(startToken), startsWith(endToken) here, not sure
+                val startToken = searchTokens.first()
+                val endToken = searchTokens.last()
+
+                val startTokenFullMatch = index.findFilesByToken(startToken).toSet()
+                val endTokenFullMatch = index.findFilesByToken(endToken).toSet()
+
+                fileSet.intersect(startTokenFullMatch).intersect(endTokenFullMatch).forEach { emit(it) }
+
+                if (startTokenIsFull && endTokenIsFull) return@flow
+
+                val start = System.currentTimeMillis()
+                if (!startTokenIsFull) {
+                    val tokensInIndex = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
+                    val newFiles = tokensInIndex.flatMap { index.findFilesByToken(it) }.toSet()
+                    fileSet.intersect(newFiles)
+                } else {
+                    fileSet.intersect(startTokenFullMatch)
+                }
+
+                if (fileSet.isEmpty()) return@flow
+
+                fileSet = if (!endTokenIsFull) {
+                    val tokensInIndex = index.findTokensMatchingPredicate { it.startsWith(endToken) }.toSet()
+                    val newFiles = tokensInIndex.flatMap { index.findFilesByToken(it) }.toSet()
+                    fileSet.intersect(newFiles)
+                } else {
+                    fileSet.intersect(endTokenFullMatch)
+                }
+
                 fileSet.forEach { emit(it) }
+
+                println(
+                    "${
+                        System.currentTimeMillis() - start
+                    } !!"
+                )
             }
         }
     }
