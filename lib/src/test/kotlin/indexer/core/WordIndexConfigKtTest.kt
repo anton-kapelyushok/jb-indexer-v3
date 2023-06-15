@@ -2,6 +2,7 @@ package indexer.core
 
 import assertk.assertThat
 import assertk.assertions.containsAll
+import assertk.assertions.containsExactly
 import assertk.assertions.containsExactlyInAnyOrder
 import assertk.assertions.containsNone
 import indexer.core.internal.FileAddress
@@ -9,6 +10,7 @@ import indexer.core.internal.InvertedIndex
 import indexer.core.test.fa
 import io.mockk.coEvery
 import io.mockk.mockk
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.toSet
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -127,6 +129,41 @@ class WordIndexConfigKtTest {
         config.find(index, " ou volobuev pa ").toSet().let {
             assertThat(it).containsAll(fa("4"))
             assertThat(it).containsNone(fa("5"), fa("7"), fa("8"), fa("9"), fa("10"), fa("11"), fa("12"))
+        }
+    }
+
+    @Test
+    fun `multiple tokens search should emit tokens in correct priority`() = runTest {
+        val index = index(
+            mapOf(
+                fa("1") to setOf("aa", "bbb", "cc"),
+                fa("2") to setOf("aaa", "bbb", "cc"),
+                fa("3") to setOf("aa", "bbb", "ccc"),
+                fa("4") to setOf("aaa", "bbb", "ccc"),
+            )
+        )
+
+        config.find(index, "aa bbb cc").toList().let {
+            assertThat(it.distinct()).containsExactly(
+                fa("1"), // exact match first
+                fa("2"), // start expanded, end exact
+                fa("3"), // start exact, end expanded
+                fa("4"), // both expanded
+            )
+        }
+
+        config.find(index, " aa bbb cc").toList().let {
+            assertThat(it.distinct()).containsExactly(
+                fa("1"), // exact match first
+                fa("3"), // start exact, end expanded
+            )
+        }
+
+        config.find(index, "aa bbb cc ").toList().let {
+            assertThat(it.distinct()).containsExactly(
+                fa("1"), // exact match first
+                fa("2"), // start expanded, end exact
+            )
         }
     }
 

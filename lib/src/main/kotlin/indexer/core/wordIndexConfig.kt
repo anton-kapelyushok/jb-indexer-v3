@@ -117,10 +117,12 @@ fun wordIndexConfig(
 
                 if (startTokenIsFull && endTokenIsFull) return@flow
 
-                if (!startTokenIsFull) {
+                fileSet = if (!startTokenIsFull) {
                     val tokensInIndex = index.findTokensMatchingPredicate { it.endsWith(startToken) }.toSet()
                     val newFiles = tokensInIndex.flatMap { index.findFilesByToken(it) }.toSet()
-                    fileSet.intersect(newFiles)
+                    fileSet.intersect(newFiles).also {
+                        it.intersect(endTokenFullMatch).forEach { f -> emit(f) }
+                    }
                 } else {
                     fileSet.intersect(startTokenFullMatch)
                 }
@@ -130,7 +132,9 @@ fun wordIndexConfig(
                 fileSet = if (!endTokenIsFull) {
                     val tokensInIndex = index.findTokensMatchingPredicate { it.startsWith(endToken) }.toSet()
                     val newFiles = tokensInIndex.flatMap { index.findFilesByToken(it) }.toSet()
-                    fileSet.intersect(newFiles)
+                    fileSet.intersect(newFiles).also {
+                        it.intersect(startTokenFullMatch).forEach { f -> emit(f) }
+                    }
                 } else {
                     fileSet.intersect(endTokenFullMatch)
                 }
