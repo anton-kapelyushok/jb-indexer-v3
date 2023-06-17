@@ -16,8 +16,8 @@ internal interface Watcher {
         dir: Path,
         faInterner: Interner<FileAddress>,
         fileSyncEvents: SendChannel<FileSyncEvent>,
-        statusUpdates: SendChannel<StatusUpdate>,
         watcherStartedLatch: CompletableDeferred<Unit>,
+        indexerManager: IndexManager,
     ): Result<Any>
 }
 
@@ -26,14 +26,14 @@ internal object FsWatcher : Watcher {
         dir: Path,
         faInterner: Interner<FileAddress>,
         fileSyncEvents: SendChannel<FileSyncEvent>,
-        statusUpdates: SendChannel<StatusUpdate>,
         watcherStartedLatch: CompletableDeferred<Unit>,
+        indexerManager: IndexManager,
     ): Result<Any> {
         return runCatching {
             withContext(Dispatchers.IO) {
                 val watcher = buildWatcher(
                     coroutineContext,
-                    dir, faInterner, watcherStartedLatch, fileSyncEvents, statusUpdates
+                    dir, faInterner, watcherStartedLatch, fileSyncEvents, indexerManager
                 )
                 invokeOnCancellation { watcher.close() }
 
@@ -43,7 +43,7 @@ internal object FsWatcher : Watcher {
                 // this can be worked around by checking interruption flag in fileHasher,
                 // which is called on every encountered file
                 val future = runInterruptible { watcher.watchAsync() }
-                statusUpdates.send(StatusUpdate.WatcherStarted)
+                indexerManager.handleWatcherStarted()
                 watcherStartedLatch.complete(Unit)
                 future.join()
             }
@@ -57,7 +57,7 @@ private fun buildWatcher(
     faInterner: Interner<FileAddress>,
     watcherStartedLatch: CompletableDeferred<Unit>,
     fileSyncEvents: SendChannel<FileSyncEvent>,
-    statusUpdates: SendChannel<StatusUpdate>,
+    indexerManager: IndexManager,
 ): DirectoryWatcher = DirectoryWatcher.builder()
     .path(dir)
     .logger(NOPLogger.NOP_LOGGER)
@@ -70,7 +70,7 @@ private fun buildWatcher(
         // A hack to show some information during watcher initialization
         if (!watcherStartedLatch.isCompleted) {
             runBlocking(ctx + Dispatchers.Unconfined) {
-                statusUpdates.send(StatusUpdate.WatcherDiscoveredFileDuringInitialization)
+                indexerManager.handleWatcherDiscoveredFileDuringInitialization()
             }
         }
         FileHasher.LAST_MODIFIED_TIME.hash(path)
@@ -80,7 +80,7 @@ private fun buildWatcher(
             if (event.isDirectory) return
             runBlocking(ctx + Dispatchers.Unconfined) {
 
-                statusUpdates.send(StatusUpdate.FileUpdated(FileEventSource.WATCHER))
+                indexerManager.handleFileUpdated()
 
                 when (event.eventType()!!) {
                     DirectoryChangeEvent.EventType.CREATE -> {

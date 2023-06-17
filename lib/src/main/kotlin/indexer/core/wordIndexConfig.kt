@@ -3,6 +3,7 @@ package indexer.core
 import indexer.core.internal.FileAddress
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -16,6 +17,8 @@ fun wordIndexConfig(
     override val enableLogging = AtomicBoolean(false)
 
     override val enableWatcher: Boolean = enableWatcher
+
+    override val ioSemaphore: Semaphore = Semaphore(4)
 
     override fun tokenize(line: String): List<String> {
         return line.split(regex).map { it.trim().lowercase() }

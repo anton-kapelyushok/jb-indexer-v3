@@ -7,8 +7,8 @@ import indexer.core.internal.FileEventSource.INITIAL_SYNC
 import indexer.core.internal.FileEventType.CREATE
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.channels.consumeEach
+import kotlinx.coroutines.sync.Semaphore
 import java.io.FileNotFoundException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -20,12 +20,16 @@ import kotlin.streams.asSequence
 internal suspend fun syncFs(
     cfg: IndexConfig,
     dir: Path,
-    fileSyncEvents: SendChannel<FileSyncEvent>,
-    statusUpdates: SendChannel<StatusUpdate>,
+    indexManager: IndexManager,
     watcher: Watcher = FsWatcher,
 ) = coroutineScope {
     val clock = AtomicLong(0L)
     val faInterner = Interners.newWeakInterner<FileAddress>()
+
+    suspend fun CoroutineScope.indexFile(event: FileSyncEvent) {
+        val s = this
+        s.launch { indexer(cfg, event, indexManager) }
+    }
 
     while (true) {
         coroutineScope {
@@ -38,8 +42,8 @@ internal suspend fun syncFs(
                         dir,
                         faInterner,
                         watcherFileSyncEvents,
-                        statusUpdates,
-                        watcherStartedLatch
+                        watcherStartedLatch,
+                        indexManager
                     )
                 }
             } else {
@@ -50,9 +54,9 @@ internal suspend fun syncFs(
             val job = launch {
                 watcherStartedLatch.await()
                 // emit initial file events only after watcher started
-                emitInitialContent(dir, cfg, clock, faInterner, fileSyncEvents, statusUpdates)
+                emitInitialContent(dir, cfg, clock, faInterner, indexManager)
                 // emit watcher events only after initial sync completed
-                watcherFileSyncEvents.consumeEach { fileSyncEvents.send(it.copy(t = clock.incrementAndGet())) }
+                watcherFileSyncEvents.consumeEach { indexFile(it.copy(t = clock.incrementAndGet())) }
             }
 
             val watcherException = watcherDeferred.await().exceptionOrNull()
@@ -60,19 +64,25 @@ internal suspend fun syncFs(
             cfg.handleWatcherError(watcherException)
             // wait until no more events from this generation will be sent, and only then send FileSyncFailed
             job.cancelAndJoin()
-            statusUpdates.send(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
+            indexManager.handleFileSyncFailed(StatusUpdate.FileSyncFailed(clock.incrementAndGet(), watcherException))
         }
     }
 }
+
 
 internal suspend fun emitInitialContent(
     dir: Path,
     cfg: IndexConfig,
     clock: AtomicLong,
     faInterner: Interner<FileAddress>,
-    fileSyncEvents: SendChannel<FileSyncEvent>,
-    statusUpdates: SendChannel<StatusUpdate>,
+    indexManager: IndexManager,
 ) {
+    suspend fun CoroutineScope.indexFile(event: FileSyncEvent) {
+        val s = this
+        s.launch { indexer(cfg, event, indexManager) }
+    }
+
+
     withContext(Dispatchers.IO) {
         val retryCount = 10
         for (attempt in 1..retryCount) {
@@ -82,8 +92,8 @@ internal suspend fun emitInitialContent(
                     .filter { it.isRegularFile() }
                     .forEach {
                         ensureActive()
-                        statusUpdates.send(StatusUpdate.FileUpdated(INITIAL_SYNC))
-                        fileSyncEvents.send(
+                        indexManager.handleFileUpdated()
+                        indexFile(
                             FileSyncEvent(
                                 clock.incrementAndGet(),
                                 it.toFile().canonicalPath.toFileAddress(faInterner),
@@ -113,7 +123,7 @@ internal suspend fun emitInitialContent(
             break
         }
 
-        statusUpdates.send(StatusUpdate.AllFilesDiscovered)
+        indexManager.handleAllFilesDiscovered()
     }
 }
 

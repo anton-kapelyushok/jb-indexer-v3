@@ -3,8 +3,8 @@ package indexer.core.internal
 import indexer.core.IndexConfig
 import indexer.core.internal.FileEventType.*
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlin.io.path.Path
@@ -13,33 +13,39 @@ import kotlin.io.path.readLines
 
 internal suspend fun indexer(
     cfg: IndexConfig,
-    fileSyncEvents: ReceiveChannel<FileSyncEvent>,
-    indexUpdateRequests: SendChannel<FileUpdateRequest>
+    event: FileSyncEvent,
+    indexerManager: IndexManager,
 ) {
-    for (event in fileSyncEvents) {
-        cfg.debugLog("indexer: $event")
-        when (event.type) {
-            CREATE, MODIFY -> handleUpdated(cfg, event, indexUpdateRequests)
-            DELETE -> handleRemoved(event, indexUpdateRequests)
-        }
+    cfg.debugLog(
+        "indexer: $event"
+    )
+    when (event.type) {
+        CREATE, MODIFY -> handleUpdated(cfg, event, indexerManager)
+        DELETE -> handleRemoved(event, indexerManager)
     }
 }
 
-private suspend fun handleRemoved(event: FileSyncEvent, indexUpdateRequests: SendChannel<FileUpdateRequest>) {
-    indexUpdateRequests.send(FileUpdateRequest.RemoveFileRequest(event.t, event.fileAddress, event.source))
+private suspend fun handleRemoved(event: FileSyncEvent, indexerManager: IndexManager) {
+    indexerManager.handleRemoveFileRequest(
+        FileUpdateRequest.RemoveFileRequest(
+            event.t,
+            event.fileAddress,
+            event.source
+        )
+    )
 }
 
 private suspend fun handleUpdated(
     cfg: IndexConfig,
     event: FileSyncEvent,
-    indexUpdateRequests: SendChannel<FileUpdateRequest>
-) {
+    indexerManager: IndexManager,
+) = cfg.ioSemaphore.withPermit {
     withContext(Dispatchers.IO) {
         val path = Path(event.fileAddress.path)
         try {
             if (path.fileSize() > 10_000_000L) {
                 // file too large, skip
-                indexUpdateRequests.send(
+                indexerManager.handleUpdateFileContentRequest(
                     FileUpdateRequest.UpdateFile(
                         t = event.t,
                         fileAddress = event.fileAddress,
@@ -54,7 +60,7 @@ private suspend fun handleUpdated(
                 .flatMap { cfg.tokenize(it) }
                 .toSet()
 
-            indexUpdateRequests.send(
+            indexerManager.handleUpdateFileContentRequest(
                 FileUpdateRequest.UpdateFile(
                     t = event.t,
                     fileAddress = event.fileAddress,
@@ -63,7 +69,7 @@ private suspend fun handleUpdated(
                 )
             )
         } catch (e: IOException) {
-            indexUpdateRequests.send(
+            indexerManager.handleUpdateFileContentRequest(
                 FileUpdateRequest.UpdateFile(
                     t = event.t,
                     fileAddress = event.fileAddress,

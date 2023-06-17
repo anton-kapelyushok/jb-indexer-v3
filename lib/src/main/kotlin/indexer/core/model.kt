@@ -4,6 +4,7 @@ import indexer.core.internal.FileAddress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
 interface Index : Deferred<Any?> {
@@ -25,6 +26,8 @@ interface IndexConfig {
     val enableLogging: AtomicBoolean
 
     val enableWatcher: Boolean
+
+    val ioSemaphore: Semaphore
 
     // transforms line into tokens for index to store
     fun tokenize(line: String): List<String>

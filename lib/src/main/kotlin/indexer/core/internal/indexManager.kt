@@ -2,63 +2,12 @@ package indexer.core.internal
 
 import indexer.core.IndexState
 import indexer.core.IndexStatusUpdate
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.selects.select
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 
 data class FileAddress(val path: String)
-
-internal suspend fun indexManager(
-    userRequests: ReceiveChannel<UserRequest>,
-    indexUpdateRequests: ReceiveChannel<FileUpdateRequest>,
-    statusUpdates: ReceiveChannel<StatusUpdate>,
-    emitStatusUpdate: (IndexStatusUpdate) -> Unit,
-    enableDebugLog: AtomicBoolean = AtomicBoolean(false),
-) = coroutineScope {
-    val index = IndexManager(emitStatusUpdate, enableDebugLog)
-    fun debugLog(s: String) = if (enableDebugLog.get()) println(s) else Unit
-
-    try {
-        while (true) {
-            select {
-                statusUpdates.onReceive { event ->
-                    debugLog("statusUpdates: $event")
-                    when (event) {
-                        StatusUpdate.WatcherDiscoveredFileDuringInitialization -> index.handleWatcherDiscoveredFileDuringInitialization()
-                        StatusUpdate.WatcherStarted -> index.handleWatcherStarted()
-                        is StatusUpdate.FileUpdated -> index.handleFileUpdated()
-                        StatusUpdate.AllFilesDiscovered -> index.handleAllFilesDiscovered()
-                        is StatusUpdate.FileSyncFailed -> index.handleFileSyncFailed(event)
-                    }
-                }
-                userRequests.onReceive { event ->
-                    debugLog("userRequests: $event")
-                    when (event) {
-                        is UserRequest.FindFilesByToken -> index.handleFindFileByTokenRequest(event)
-                        is UserRequest.Status -> index.handleStatusRequest(event)
-                        is UserRequest.FindTokensMatchingPredicate -> index.handleFindTokensMatchingPredicateRequest(event)
-                        is UserRequest.Compact -> index.handleCompactRequest(event)
-                    }
-                }
-                indexUpdateRequests.onReceive { event ->
-                    debugLog("indexRequests: $event")
-                    when (event) {
-                        is FileUpdateRequest.UpdateFile -> index.handleUpdateFileContentRequest(event)
-                        is FileUpdateRequest.RemoveFileRequest -> index.handleRemoveFileRequest(event)
-                    }
-                }
-            }
-        }
-    } finally {
-        withContext(NonCancellable) {
-            index.handleComplete()
-        }
-    }
-}
 
 internal class IndexManager(
     private val emitStatusUpdate: (IndexStatusUpdate) -> Unit,
@@ -77,43 +26,43 @@ internal class IndexManager(
     private var totalFileEvents = 0L
     private var handledFileEvents = 0L
 
-    fun handleUpdateFileContentRequest(event: FileUpdateRequest.UpdateFile) {
+    val mutex = Mutex()
+
+    suspend fun handleUpdateFileContentRequest(event: FileUpdateRequest.UpdateFile) = mutex.withLock {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.addOrUpdateDocument(event.fileAddress, event.tokens)
     }
 
-    fun handleRemoveFileRequest(event: FileUpdateRequest.RemoveFileRequest) {
+    suspend fun handleRemoveFileRequest(event: FileUpdateRequest.RemoveFileRequest) = mutex.withLock {
         handleFileSyncEvent(event.t, event.fileAddress) ?: return
         invertedIndex.removeDocument(event.fileAddress)
     }
 
-    fun handleStatusRequest(event: UserRequest.Status) {
-        event.result.complete(status())
+    suspend fun handleStatusRequest() = mutex.withLock {
+        return@withLock status()
     }
 
-    fun handleFindFileByTokenRequest(event: UserRequest.FindFilesByToken) {
-        val result = event.result
-        result.complete(invertedIndex.findFilesByToken(event.query))
+    suspend fun handleFindFileByTokenRequest(query: String) = mutex.withLock {
+        return@withLock invertedIndex.findFilesByToken(query)
     }
 
-    fun handleFindTokensMatchingPredicateRequest(event: UserRequest.FindTokensMatchingPredicate) {
-        val result = event.result
-        result.complete(invertedIndex.findTokensMatchingPredicate(event.predicate))
-    }
+    suspend fun handleFindTokensMatchingPredicateRequest(predicate: (String) -> Boolean) =
+        mutex.withLock {
+            return@withLock invertedIndex.findTokensMatchingPredicate(predicate)
+        }
 
-    fun handleCompactRequest(event: UserRequest.Compact) {
+    suspend fun handleCompactRequest() = mutex.withLock {
         invertedIndex.compact()
-        event.result.complete(Unit)
     }
 
-    fun handleWatcherStarted() {
+    suspend fun handleWatcherStarted() = mutex.withLock {
         val watcherStartedTime = System.currentTimeMillis()
         debugLog("Watcher started after ${watcherStartedTime - startTime} ms!")
         watcherStarted = true
         emitStatusUpdate(IndexStatusUpdate.WatcherStarted(watcherStartedTime, status()))
     }
 
-    fun handleAllFilesDiscovered() {
+    suspend fun handleAllFilesDiscovered() = mutex.withLock {
         val allFilesDiscoveredTime = System.currentTimeMillis()
         allFilesDiscovered = true
         debugLog("All files discovered after ${allFilesDiscoveredTime - startTime} ms!")
@@ -123,7 +72,7 @@ internal class IndexManager(
         }
     }
 
-    fun handleFileUpdated() {
+    suspend fun handleFileUpdated() = mutex.withLock {
         val wasInSync = status().isInSync()
         clock++
         totalFileEvents++
@@ -132,16 +81,16 @@ internal class IndexManager(
         }
     }
 
-    fun handleWatcherDiscoveredFileDuringInitialization() {
+    suspend fun handleWatcherDiscoveredFileDuringInitialization() = mutex.withLock {
         filesDiscoveredByWatcherDuringInitialization++
     }
 
-    fun handleComplete() {
+    suspend fun handleComplete() = mutex.withLock {
         clock++
         invertedIndex.reset()
     }
 
-    fun handleFileSyncFailed(event: StatusUpdate.FileSyncFailed) {
+    suspend fun handleFileSyncFailed(event: StatusUpdate.FileSyncFailed) = mutex.withLock {
         clock++
         watcherStarted = false
         allFilesDiscovered = false

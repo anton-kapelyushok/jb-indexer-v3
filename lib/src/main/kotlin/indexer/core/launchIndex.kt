@@ -1,40 +1,33 @@
 package indexer.core
 
-import indexer.core.internal.*
+import indexer.core.internal.FileAddress
+import indexer.core.internal.IndexManager
+import indexer.core.internal.syncFs
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Semaphore
 import java.nio.file.Path
 
 fun CoroutineScope.launchIndex(
     dir: Path,
     cfg: IndexConfig,
 ): Index {
-    val userRequests = Channel<UserRequest>()
-    val indexUpdateRequests = Channel<FileUpdateRequest>()
-    val statusUpdates = Channel<StatusUpdate>(Int.MAX_VALUE)
-    val fileSyncEvents = Channel<FileSyncEvent>(Int.MAX_VALUE)
     val statusFlow = MutableSharedFlow<IndexStatusUpdate>(
         replay = 16, // is enough for everyone
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     statusFlow.tryEmit(IndexStatusUpdate.Initializing(System.currentTimeMillis()))
 
+    val indexManager = IndexManager(
+        emitStatusUpdate = { statusFlow.tryEmit(it) },
+        enableDebugLog = cfg.enableLogging
+    )
+
+    val ioSemaphore = Semaphore(4)
+
     val deferred = async(Dispatchers.Default + CoroutineName("launchIndex")) {
-        launch(CoroutineName("syncFs")) { syncFs(cfg, dir, fileSyncEvents, statusUpdates) }
-        repeat(4) {
-            launch(CoroutineName("indexer-$it")) { indexer(cfg, fileSyncEvents, indexUpdateRequests) }
-        }
-        launch(CoroutineName("indexManager")) {
-            indexManager(
-                userRequests = userRequests,
-                indexUpdateRequests = indexUpdateRequests,
-                statusUpdates = statusUpdates,
-                emitStatusUpdate = { statusFlow.tryEmit(it) },
-                enableDebugLog = cfg.enableLogging
-            )
-        }
+        launch(CoroutineName("watcher")) { syncFs(cfg, dir, indexManager) }
     }
 
     deferred.invokeOnCompletion {
@@ -50,9 +43,7 @@ fun CoroutineScope.launchIndex(
     return object : Index, Deferred<Any?> by deferred {
         override suspend fun state(): IndexState {
             return withIndexContext {
-                val future = CompletableDeferred<IndexState>()
-                userRequests.send(UserRequest.Status(future))
-                future.await()
+                indexManager.handleStatusRequest()
             } ?: IndexState.broken()
         }
 
@@ -67,33 +58,19 @@ fun CoroutineScope.launchIndex(
 
         override suspend fun compact() {
             return withIndexContext {
-                val future = CompletableDeferred<Unit>()
-                userRequests.send(UserRequest.Compact(future))
-                future.await()
+                indexManager.handleCompactRequest()
             } ?: Unit
         }
 
         override suspend fun findFilesByToken(query: String): List<FileAddress> {
             return withIndexContext {
-                val result = CompletableDeferred<List<FileAddress>>()
-                val request = UserRequest.FindFilesByToken(
-                    query = query,
-                    result = result,
-                )
-                userRequests.send(request)
-                result.await()
+                indexManager.handleFindFileByTokenRequest(query)
             } ?: listOf()
         }
 
         override suspend fun findTokensMatchingPredicate(predicate: (token: String) -> Boolean): List<String> {
             return withIndexContext {
-                val result = CompletableDeferred<List<String>>()
-                val request = UserRequest.FindTokensMatchingPredicate(
-                    predicate = predicate,
-                    result = result
-                )
-                userRequests.send(request)
-                result.await()
+                indexManager.handleFindTokensMatchingPredicateRequest(predicate)
             } ?: listOf()
         }
 

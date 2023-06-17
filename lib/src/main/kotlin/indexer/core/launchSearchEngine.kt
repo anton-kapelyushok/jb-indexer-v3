@@ -10,9 +10,6 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
     val searchInFileRequests = Channel<SearchInFileRequest>()
 
     val deferred = async(Dispatchers.Default + CoroutineName("launchSearchEngine")) {
-        repeat(4) {
-            launch(CoroutineName("searchInFile-$it")) { searchInFile(cfg, searchInFileRequests) }
-        }
         index.join()
         when (val e = index.getCompletionExceptionOrNull()) {
             null -> throw IllegalStateException("Underlying index completed")
@@ -34,23 +31,13 @@ fun CoroutineScope.launchSearchEngine(cfg: IndexConfig, index: Index): SearchEng
             return withSearchEngineContext {
                 cfg.find(index, query)
                     .distinct()
-                    .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(fileCandidate, query) }
+                    .flatMapMerge(concurrency = 4) { fileCandidate -> searchInFile(cfg, fileCandidate, query).asFlow() }
             } ?: flowOf()
         }
 
         override suspend fun cancelAll(cause: CancellationException?) {
             index.cancel(cause)
             cancel()
-        }
-
-        private suspend fun searchInFile(fileCandidate: FileAddress, query: String): Flow<IndexSearchResult> = flow {
-            val searchResults = withSearchEngineContext {
-                val future = CompletableDeferred<List<IndexSearchResult>>()
-                searchInFileRequests.send(SearchInFileRequest(fileCandidate, query, future))
-                future.await()
-            } ?: listOf()
-
-            searchResults.forEach { emit(it) }
         }
 
         private suspend fun <T : Any> withSearchEngineContext(
